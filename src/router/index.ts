@@ -16,7 +16,7 @@ const router = createRouter({
       // route level code-splitting
       // this generates a separate chunk (About.[hash].js) for this route
       // which is lazy-loaded when the route is visited.
-      component: () => import('../views/AboutView.vue'),
+      component: () => import('../views/About.vue'),
     },
     {
       path: '/auth',
@@ -27,8 +27,15 @@ const router = createRouter({
     {
       path: '/device',
       name: 'device',
-      component: () => import('../views/DevicePage.vue'),
+      component: () => import('../views/DeviceList.vue'),
       meta: { requiresAuth: true }, // 设备页面需要认证
+    },
+    {
+      path: '/device/:id',
+      name: 'device-detail',
+      component: () => import('../views/DeviceDetail.vue'),
+      props: true, // 允许将路由参数作为组件的props
+      meta: { requiresAuth: true }, // 设备详情页面需要认证
     },
   ],
 })
