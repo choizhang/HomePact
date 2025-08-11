@@ -9,7 +9,7 @@ interface UploadedFile {
     fileName: string;
     type: string;
     filePath: string; // 添加 filePath 字段，用于删除
-    recognized_text?: string; // 添加 recognized_text 字段
+    recognized_text?: string | null; // 添加 recognized_text 字段，允许为 null
 }
 
 const props = defineProps<{
@@ -19,43 +19,44 @@ const props = defineProps<{
 const emit = defineEmits(['update:modelValue', 'file-uploaded']);
 
 const fileInput = ref<HTMLInputElement | null>(null);
-const uploadedFiles = ref<UploadedFile[]>([]); // 修改为对象数组类型
+const newlyUploadedFiles = ref<UploadedFile[]>([]); // 新上传的文件
+const existingFiles = ref<UploadedFile[]>([]); // 已存在的文件
 
-// 初始化 uploadedFiles
+// 初始化文件列表
 watch(() => props.modelValue, (newVal) => {
+    // 每次 modelValue 变化时，清空并重新初始化 existingFiles
+    // newlyUploadedFiles 应该只在用户上传新文件时更新
+    existingFiles.value = [];
+    newlyUploadedFiles.value = []; // 确保每次 modelValue 变化时，新上传的文件列表也被清空
+
     if (newVal) {
+        let files: UploadedFile[] = [];
         if (Array.isArray(newVal)) {
-            // 检查数组元素是否已经是 UploadedFile 类型
-            // 修正：检查数组的第一个元素是否是 UploadedFile 类型
-            if (newVal.length > 0 && typeof newVal[0] === 'object' && 'url' in newVal[0]) { // 修正这里的类型检查
-                uploadedFiles.value = newVal as UploadedFile[];
-            } else {
-                // 如果是字符串数组，转换为 UploadedFile 数组 (fileName 和 type 需要推断或默认值)
-                uploadedFiles.value = (newVal as any[]).map(item => {
-                    const urlString = item && typeof item === 'object' && typeof item.url === 'string' ? item.url : String(item);
-                    if (urlString) {
-                        return {
-                            url: urlString,
-                            fileName: urlString.split('/').pop() || urlString, // 使用split方法提取文件名
-                            type: urlString.match(/\.(jpeg|jpg|gif|png|svg|webp)$/i) ? 'image' : 'unknown', // 简单判断类型
-                            filePath: '' // 对于从 modelValue 初始化的文件，filePath 暂时为空，表示无法直接删除
-                        };
-                    }
-                    return null; // 返回null，稍后过滤
-                }).filter(Boolean) as UploadedFile[]; // 过滤掉所有 null 值并断言类型
-            }
+            files = (newVal as any[]).map(item => {
+                const urlString = item && typeof item === 'object' && typeof item.url === 'string' ? item.url : String(item);
+                if (urlString) {
+                    return {
+                        url: urlString,
+                        fileName: item.fileName || urlString.split('/').pop() || urlString,
+                        type: item.type || (urlString.match(/\.(jpeg|jpg|gif|png|svg|webp)$/i) ? 'image' : 'unknown'),
+                        filePath: item.filePath || '', // 确保 filePath 存在
+                        recognized_text: item.recognized_text || null
+                    };
+                }
+                return null;
+            }).filter(Boolean) as UploadedFile[];
         } else if (typeof newVal === 'string') {
-            uploadedFiles.value = [{
+            files = [{
                 url: newVal,
                 fileName: newVal.split('/').pop() || newVal,
                 type: newVal.match(/\.(jpeg|jpg|gif|png|svg|webp)$/i) ? 'image' : 'unknown',
-                filePath: '' // 对于从 modelValue 初始化的文件，filePath 暂时为空
+                filePath: '',
+                recognized_text: null
             }];
-        } else {
-            uploadedFiles.value = [];
         }
-    } else {
-        uploadedFiles.value = [];
+
+        // 将所有从 modelValue 传入的文件视为 existingFiles
+        existingFiles.value = files;
     }
 }, { immediate: true }); // 立即执行一次，确保初始化
 
@@ -65,7 +66,7 @@ const handleFileChange = async (event: Event) => {
     const target = event.target as HTMLInputElement;
     if (target.files && target.files.length > 0) {
         const filesToUpload = Array.from(target.files); // 将 FileList 转换为数组
-        const newUploadedFiles: UploadedFile[] = [];
+        const newUploadedFilesBatch: UploadedFile[] = []; // 本次上传的新文件批次
         let hasError = false;
 
         isLoading.value = true;
@@ -79,7 +80,7 @@ const handleFileChange = async (event: Event) => {
                 }
                 const uploadResult = await uploadFile(file); // 修改这里，接收包含 publicUrl 和 filePath 的对象
                 if (uploadResult && uploadResult.publicUrl) {
-                    newUploadedFiles.push({
+                    newUploadedFilesBatch.push({
                         url: uploadResult.publicUrl,
                         fileName: file.name,
                         type: file.type.startsWith('image/') ? 'image' : file.type,
@@ -91,10 +92,12 @@ const handleFileChange = async (event: Event) => {
                 }
             }
 
-            if (newUploadedFiles.length > 0) {
-                uploadedFiles.value = [...uploadedFiles.value, ...newUploadedFiles]; // 合并新旧文件信息
-                emit('update:modelValue', uploadedFiles.value);
-                emit('file-uploaded', uploadedFiles.value);
+            if (newUploadedFilesBatch.length > 0) {
+                newlyUploadedFiles.value = [...newUploadedFilesBatch, ...newlyUploadedFiles.value]; // 将新文件放在最前面
+                // 合并所有文件并发出更新事件
+                const allFiles = [...newlyUploadedFiles.value, ...existingFiles.value];
+                emit('update:modelValue', allFiles);
+                emit('file-uploaded', allFiles);
                 if (!hasError) {
                     ElMessage.success('所有文件上传成功！');
                 } else {
@@ -148,21 +151,32 @@ async function uploadFile(file: File): Promise<{ publicUrl: string; filePath: st
 
 const handleDeleteFile = async (fileToDelete: UploadedFile) => {
     try {
-        // 从 Supabase Storage 中删除文件
-        const { error: deleteError } = await supabase.storage
-            .from('appliance-files')
-            .remove([fileToDelete.filePath]); // filePath 是存储桶中的完整路径
+        // 只有当文件有 filePath 时才尝试从 Supabase Storage 中删除
+        if (fileToDelete.filePath) {
+            const { error: deleteError } = await supabase.storage
+                .from('appliance-files')
+                .remove([fileToDelete.filePath]); // filePath 是存储桶中的完整路径
 
-        if (deleteError) {
-            throw deleteError;
+            if (deleteError) {
+                throw deleteError;
+            }
+        } else {
+            // 如果没有 filePath，说明是旧文件但无法通过组件删除，或者是非 Supabase 文件
+            ElMessage.warning(`文件 ${fileToDelete.fileName} 没有关联的存储路径，无法从服务器删除。`);
         }
 
-        // 从本地 uploadedFiles 数组中移除文件
-        uploadedFiles.value = uploadedFiles.value.filter(file => file.url !== fileToDelete.url);
+
+        // 从新上传或已存在的文件数组中移除文件
+        if (newlyUploadedFiles.value.some(file => file.url === fileToDelete.url)) {
+            newlyUploadedFiles.value = newlyUploadedFiles.value.filter(file => file.url !== fileToDelete.url);
+        } else {
+            existingFiles.value = existingFiles.value.filter(file => file.url !== fileToDelete.url);
+        }
 
         // 更新 v-model 绑定的值
-        emit('update:modelValue', uploadedFiles.value);
-        emit('file-uploaded', uploadedFiles.value); // 触发文件上传事件，通知父组件文件列表已更新
+        const allFiles = [...newlyUploadedFiles.value, ...existingFiles.value];
+        emit('update:modelValue', allFiles);
+        emit('file-uploaded', allFiles); // 触发文件上传事件，通知父组件文件列表已更新
 
         ElMessage.success(`文件 ${fileToDelete.fileName} 删除成功！`);
     } catch (error: any) {
@@ -179,19 +193,43 @@ const handleDeleteFile = async (fileToDelete: UploadedFile) => {
         </el-button>
         <input type="file" @change="handleFileChange" ref="fileInput" :disabled="isLoading" multiple accept="image/*"
             style="display: none;" />
-        <div v-if="uploadedFiles.length > 0" style="margin-top: 10px;">
-            <div v-for="(file, index) in uploadedFiles" :key="file.url" class="file-item">
-                <div v-if="file.type === 'image'" class="image-container">
-                    <img :src="file.url" :alt="file.fileName" class="file-image" />
-                    <el-button type="danger" :icon="Delete" circle class="delete-file-button"
-                        @click="handleDeleteFile(file)"></el-button>
+        <div style="margin-top: 10px;">
+            <div v-if="newlyUploadedFiles.length > 0">
+                <h3>新上传文件</h3>
+                <div class="file-details-container">
+                    <div v-for="(file, index) in newlyUploadedFiles" :key="file.url" class="file-item">
+                        <div v-if="file.type === 'image'" class="image-container">
+                            <img :src="file.url" :alt="file.fileName" class="file-image" />
+                            <el-button type="danger" :icon="Delete" circle class="delete-file-button"
+                                @click="handleDeleteFile(file)"></el-button>
+                        </div>
+                        <p class="file-name">{{ file.fileName }}</p>
+                        <div v-if="file.recognized_text" class="recognized-text-container">
+                            <h3>识别文本:</h3>
+                            <p class="recognized-text">{{ file.recognized_text }}</p>
+                        </div>
+                        <el-divider v-if="index < newlyUploadedFiles.length - 1"></el-divider>
+                    </div>
                 </div>
-                <p class="file-name">{{ file.fileName }}</p>
-                <div v-if="file.recognized_text" class="recognized-text-container">
-                    <h3>识别文本:</h3>
-                    <p class="recognized_text">{{ file.recognized_text }}</p>
+            </div>
+
+            <div v-if="existingFiles.length > 0" :style="newlyUploadedFiles.length > 0 ? 'margin-top: 20px;' : ''">
+                <h3>已上传文件</h3>
+                <div class="file-details-container">
+                    <div v-for="(file, index) in existingFiles" :key="file.url" class="file-item">
+                        <div v-if="file.type === 'image'" class="image-container">
+                            <img :src="file.url" :alt="file.fileName" class="file-image" />
+                            <el-button type="danger" :icon="Delete" circle class="delete-file-button"
+                                @click="handleDeleteFile(file)"></el-button>
+                        </div>
+                        <p class="file-name">{{ file.fileName }}</p>
+                        <div v-if="file.recognized_text" class="recognized-text-container">
+                            <h3>识别文本:</h3>
+                            <p class="recognized-text">{{ file.recognized_text }}</p>
+                        </div>
+                        <el-divider v-if="index < existingFiles.length - 1"></el-divider>
+                    </div>
                 </div>
-                <el-divider v-if="index < uploadedFiles.length - 1"></el-divider>
             </div>
         </div>
     </div>
@@ -249,5 +287,15 @@ const handleDeleteFile = async (fileToDelete: UploadedFile) => {
 
 .el-divider {
     margin: 20px 0;
+}
+
+/* 从 DeviceDetail.vue 复制的样式 */
+.file-details-container {
+    margin-top: 20px;
+    border: 1px solid #ebeef5;
+    border-radius: 8px;
+    padding: 15px;
+    background-color: #f9fafc;
+    width: 100%;
 }
 </style>

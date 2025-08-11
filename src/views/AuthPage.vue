@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ElMessage } from 'element-plus';
+import { supabase } from '@/stores/auth'; // 导入 supabase 客户端
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -81,6 +82,22 @@ const handleRegister = async () => {
   }
 };
 
+async function signInWithOAuth(provider: 'google' | 'github') {
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: provider,
+    });
+    if (error) {
+      ElMessage.error(`使用 ${provider} 登录失败: ` + error.message);
+    } else {
+      console.log(`${provider} 登录成功:`, data);
+      // OAuth 登录通常会重定向，这里不需要手动 push
+    }
+  } catch (error: any) {
+    ElMessage.error(`使用 ${provider} 登录时发生错误: ` + error.message);
+  }
+}
+
 onMounted(() => {
   // 默认显示登录表单
   showLoginForm();
@@ -100,6 +117,10 @@ onMounted(() => {
         <input type="password" id="login-password" v-model="loginPassword" placeholder="请输入密码">
       </div>
       <button @click="handleLogin">登录</button>
+      <div class="oauth-buttons">
+        <button @click="signInWithOAuth('google')" class="oauth-button google-button">使用 Google 登录</button>
+        <button @click="signInWithOAuth('github')" class="oauth-button github-button">使用 GitHub 登录</button>
+      </div>
       <p class="toggle-link" @click="showRegisterForm">没有账号？注册</p>
     </div>
 
@@ -129,6 +150,7 @@ body {
   background-color: #f4f4f4;
   margin: 0;
 }
+
 .container {
   background-color: #fff;
   padding: 20px 30px;
@@ -137,19 +159,23 @@ body {
   width: 300px;
   text-align: center;
 }
+
 h2 {
   margin-bottom: 20px;
   color: #333;
 }
+
 .form-group {
   margin-bottom: 15px;
   text-align: left;
 }
+
 .form-group label {
   display: block;
   margin-bottom: 5px;
   color: #555;
 }
+
 .form-group input {
   width: 100%;
   padding: 10px;
@@ -157,6 +183,7 @@ h2 {
   border-radius: 4px;
   box-sizing: border-box;
 }
+
 button {
   width: 100%;
   padding: 10px;
@@ -168,9 +195,46 @@ button {
   font-size: 16px;
   margin-top: 10px;
 }
+
 button:hover {
   background-color: #0056b3;
 }
+
+.oauth-buttons {
+  margin-top: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.oauth-button {
+  background-color: #f0f0f0;
+  color: #333;
+  border: 1px solid #ccc;
+}
+
+.oauth-button:hover {
+  background-color: #e0e0e0;
+}
+
+.google-button {
+  background-color: #db4437;
+  color: white;
+}
+
+.google-button:hover {
+  background-color: #c23321;
+}
+
+.github-button {
+  background-color: #333;
+  color: white;
+}
+
+.github-button:hover {
+  background-color: #000;
+}
+
 .toggle-link {
   margin-top: 20px;
   color: #007bff;
