@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter, onBeforeRouteUpdate } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import FileUpload from '@/components/FileUpload.vue'; // 导入文件上传组件
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -26,7 +27,7 @@ interface ApplianceGroup {
 const appliances = ref<ApplianceGroup[]>([]);
 const isAddApplianceModalVisible = ref(false);
 const applianceDescription = ref('');
-const applianceFile = ref<File | null>(null);
+const applianceFileUrl = ref<string | null>(null); // 用于存储文件URL
 
 const openAddApplianceModal = () => {
   isAddApplianceModalVisible.value = true;
@@ -35,16 +36,11 @@ const openAddApplianceModal = () => {
 const closeAddApplianceModal = () => {
   isAddApplianceModalVisible.value = false;
   applianceDescription.value = '';
-  applianceFile.value = null;
+  applianceFileUrl.value = null;
 };
 
-const handleFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  if (target.files && target.files.length > 0) {
-    applianceFile.value = target.files[0]; // Take only the first file
-  } else {
-    applianceFile.value = null;
-  }
+const handleFileUploadSuccess = (url: string) => {
+  applianceFileUrl.value = url;
 };
 
 const fetchDevices = async () => {
@@ -129,9 +125,9 @@ const updateDeviceEnableStatus = async (deviceId: string, isEnabled: boolean) =>
 
 const handleSubmitAppliance = async () => {
   const description = applianceDescription.value;
-  const file = applianceFile.value;
+  const fileUrl = applianceFileUrl.value; // 使用新的文件URL
 
-  if (!description && !file) {
+  if (!description && !fileUrl) {
     ElMessage.error('请输入描述或上传文件。');
     return;
   }
@@ -150,8 +146,8 @@ const handleSubmitAppliance = async () => {
 
   const formData = new FormData();
   formData.append('raw_text', description);
-  if (file) {
-    formData.append('file', file);
+  if (fileUrl) {
+    formData.append('file_url', fileUrl); // 传递文件URL
   }
 
   try {
@@ -238,10 +234,7 @@ onBeforeRouteUpdate(async (to, from, next) => {
         <el-input type="textarea" v-model="applianceDescription" placeholder="例如：我客厅新买的海尔冰箱，双开门的" :rows="4"></el-input>
       </el-form-item>
       <el-form-item label="上传文件">
-        <el-upload class="upload-demo" action="#" :on-change="handleFileChange" :auto-upload="false"
-          :show-file-list="false">
-          <el-button type="primary">选择文件</el-button>
-        </el-upload>
+        <FileUpload v-model="applianceFileUrl" @file-uploaded="handleFileUploadSuccess" />
       </el-form-item>
     </el-form>
     <template #footer>
