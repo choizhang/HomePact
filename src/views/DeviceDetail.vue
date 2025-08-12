@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
-import { ElMessage, ElMessageBox } from 'element-plus'; // 导入 ElMessageBox
+import { ElMessage, ElMessageBox, ElIcon } from 'element-plus'; // 导入 ElMessageBox, ElIcon
 import { Delete } from '@element-plus/icons-vue'; // 导入 Delete 图标
 import FileUpload from '@/components/FileUpload.vue'; // 导入文件上传组件
 
@@ -33,8 +33,9 @@ interface Appliance {
 
 const device = ref<Appliance | null>(null);
 const allFiles = ref<UploadedFile[]>([]); // 用于文件上传和显示所有文件的字段
+const pastedImagePreview = ref<{ id: number; url: string; fileName: string }[]>([]); // 用于存储粘贴图片的预览URL和ID
+let nextImageId = 0; // 用于生成唯一的图片ID
 const isSaving = ref(false); // 控制保存按钮的loading状态和禁用状态
-// filesToDelete 不再需要，因为 FileUpload 组件会直接更新 allFiles
 
 const fetchDeviceDetails = async () => {
     if (!deviceId.value) {
@@ -107,6 +108,87 @@ const fetchDeviceDetails = async () => {
     // 确保 device.value 不为 null 后再初始化 allFiles
     if (device.value) {
         allFiles.value = device.value.files || [];
+        // 将已有的图片添加到 pastedImagePreview
+        pastedImagePreview.value = allFiles.value
+            .filter(file => file.type.startsWith('image/') && file.url.startsWith('data:image'))
+            .map(file => ({ id: nextImageId++, url: file.url, fileName: file.fileName }));
+    }
+};
+
+const handleFileUploadSuccess = (url: string) => {
+    // FileUpload 组件会直接更新 allFiles，这里不需要额外处理
+    // 如果通过文件上传，清除所有粘贴的图片预览，因为通常文件上传是替代粘贴的
+    pastedImagePreview.value = [];
+};
+
+const removePastedImage = (idToRemove: number) => {
+    const index = pastedImagePreview.value.findIndex(img => img.id === idToRemove);
+    if (index !== -1) {
+        const removedImage = pastedImagePreview.value.splice(index, 1)[0];
+        // 从 allFiles 中移除对应的文件
+        const allFilesIndex = allFiles.value.findIndex(file => file.url === removedImage.url);
+        if (allFilesIndex !== -1) {
+            allFiles.value.splice(allFilesIndex, 1);
+        }
+    }
+};
+
+const handlePaste = (event: ClipboardEvent) => {
+    const items = event.clipboardData?.items;
+    if (items) {
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const imageUrl = e.target?.result as string;
+                        const newId = nextImageId++;
+                        pastedImagePreview.value.push({ id: newId, url: imageUrl, fileName: `pasted_image_${newId}.png` });
+                        allFiles.value.push({
+                            url: imageUrl,
+                            fileName: `pasted_image_${newId}.png`,
+                            type: file.type,
+                            filePath: '' // 粘贴的图片没有 filePath
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                    event.preventDefault(); // 阻止默认粘贴行为
+                }
+            }
+        }
+    }
+};
+
+const handleDragOver = (event: DragEvent) => {
+    event.preventDefault(); // 阻止默认行为，允许放置
+    event.stopPropagation();
+};
+
+const handleDrop = (event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const files = event.dataTransfer?.files;
+    if (files) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const imageUrl = e.target?.result as string;
+                    const newId = nextImageId++;
+                    pastedImagePreview.value.push({ id: newId, url: imageUrl, fileName: file.name });
+                    allFiles.value.push({
+                        url: imageUrl,
+                        fileName: file.name,
+                        type: file.type,
+                        filePath: '' // 拖拽的图片没有 filePath
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        }
     }
 };
 
@@ -133,12 +215,28 @@ const saveDevice = async () => {
     formData.append('id', device.value.id); // 添加id参数
     formData.append('raw_text', device.value.raw_text || ''); // 只发送raw_text
 
-    // 直接使用 allFiles，因为它已经包含了所有文件（包括已存在的和新上传的）
-    if (allFiles.value.length > 0) {
-        // 将 UploadedFile[] 转换为 JSON 字符串
-        formData.append('files', JSON.stringify(allFiles.value));
-    } else {
-        formData.append('files', ''); // 如果没有文件，发送空字符串
+    // 处理 allFiles 中的所有文件
+    allFiles.value.forEach((file, index) => {
+        if (file.url.startsWith('data:image')) {
+            // 如果是base64格式的图片（粘贴或拖拽的），需要转换为Blob
+            const byteString = atob(file.url.split(',')[1]);
+            const mimeString = file.url.split(',')[0].split(':')[1].split(';')[0];
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            const blob = new Blob([ab], { type: mimeString });
+            formData.append(`file_${index}`, blob, file.fileName); // 将Blob作为文件上传，文件名带索引
+        } else {
+            // 对于已存在的URL文件，直接传递URL
+            formData.append(`file_url_${index}`, file.url); // 传递文件URL，字段名带索引
+        }
+    });
+
+    // 如果没有文件，发送空字符串
+    if (allFiles.value.length === 0) {
+        formData.append('files', '');
     }
 
     try {
@@ -146,9 +244,9 @@ const saveDevice = async () => {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${jwt}`,
-                'Content-Type': 'application/json' // 添加Content-Type
+                // 'Content-Type': 'application/json' // FormData 不需要设置 Content-Type
             },
-            body: JSON.stringify(Object.fromEntries(formData)) // 将FormData转换为JSON
+            body: formData // 直接传递 FormData
         });
 
         if (response.ok) {
@@ -192,6 +290,11 @@ const cancelEdit = () => {
 onMounted(() => {
     deviceId.value = route.params.id;
     fetchDeviceDetails();
+    document.addEventListener('paste', handlePaste); // 添加粘贴事件监听器
+});
+
+onBeforeUnmount(() => {
+    document.removeEventListener('paste', handlePaste); // 移除粘贴事件监听器
 });
 </script>
 
@@ -230,8 +333,29 @@ onMounted(() => {
                             <el-input-number v-model="device.price" :min="0" :precision="2" disabled></el-input-number>
                         </el-form-item>
                         <el-form-item label="文件上传">
-                            <FileUpload v-model="allFiles" />
+                            <FileUpload v-model="allFiles" @file-uploaded="handleFileUploadSuccess" />
+                            <div class="el-upload__tip">
+                                或者，直接在此窗口内粘贴截图 (Ctrl+V)
+                            </div>
                         </el-form-item>
+
+                        <!-- 用于显示粘贴后图片预览 -->
+                        <div v-if="pastedImagePreview.length > 0" class="image-preview-container"
+                            @dragover.prevent="handleDragOver" @drop.prevent="handleDrop">
+                            <p>已粘贴图片:</p>
+                            <div v-for="(image, index) in pastedImagePreview" :key="image.id"
+                                class="image-preview-item">
+                                <img :src="image.url" alt="Pasted image preview" />
+                                <el-button type="danger" :icon="Delete" circle @click="removePastedImage(image.id)"
+                                    class="delete-pasted-image-button" />
+                                <p class="file-name">{{ image.fileName || '未命名图片' }}</p>
+                                <el-divider v-if="index < pastedImagePreview.length - 1" />
+                            </div>
+                        </div>
+                        <div v-else class="image-drop-zone" @dragover.prevent="handleDragOver"
+                            @drop.prevent="handleDrop">
+                            <p>拖拽图片到此处上传</p>
+                        </div>
 
                         <el-form-item label="添加时间">
                             <span>{{ new Date(device.created_at).toLocaleString() }}</span>
@@ -380,6 +504,72 @@ body {
     border-radius: 8px;
     padding: 15px;
     background-color: #f9fafc;
+}
+
+.image-preview-container {
+    margin-top: 20px;
+    border: 1px dashed #d9d9d9;
+    border-radius: 6px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    min-height: 100px;
+    /* 确保有足够的拖拽区域 */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-drop-zone {
+    margin-top: 20px;
+    border: 2px dashed #d9d9d9;
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    background-color: #f9f9f9;
+    color: #999;
+    font-size: 16px;
+    cursor: pointer;
+    transition: border-color 0.3s ease;
+}
+
+.image-drop-zone:hover {
+    border-color: #409eff;
+}
+
+.image-preview-container p {
+    margin-bottom: 10px;
+    color: var(--color-text-dark);
+    font-weight: 500;
+    text-align: center;
+}
+
+.image-preview-item {
+    position: relative;
+    margin-bottom: 10px;
+    /* 图片之间留出间距 */
+    border: 1px solid #eee;
+    border-radius: 4px;
+    padding: 5px;
+    background-color: #fff;
+}
+
+.image-preview-item img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: block;
+    /* 确保图片独占一行 */
+    margin: 0 auto;
+    /* 图片居中 */
+}
+
+.delete-pasted-image-button {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 10;
 }
 
 
