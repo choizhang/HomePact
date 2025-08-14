@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRouter, onBeforeRouteUpdate } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import UnifiedUploader from '@/components/UnifiedUploader.vue'; // 导入新的文件上传组件
+import { marked } from 'marked';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -30,6 +31,16 @@ const applianceDescription = ref('');
 const applianceFileUrl = ref<string[]>([]); // 用于存储文件URL数组
 const unifiedUploaderRef = ref<InstanceType<typeof UnifiedUploader> | null>(null); // 引用 UnifiedUploader 组件
 
+const isQueryModalVisible = ref(false); // 控制查询对话框的可见性
+const queryText = ref(''); // 存储用户输入的查询文本
+const queryHistory = ref<{ question: string; answer: string }[]>([]); // 存储查询历史记录
+const queryHistoryContainerRef = ref<HTMLElement | null>(null); // 引用查询历史容器
+const isFirstQuery = ref(true); // 标记是否是首次对话
+
+const renderMarkdown = (text: string) => {
+  return marked(text);
+};
+
 const openAddApplianceModal = () => {
   isAddApplianceModalVisible.value = true;
 };
@@ -38,6 +49,88 @@ const closeAddApplianceModal = () => {
   isAddApplianceModalVisible.value = false;
   applianceDescription.value = '';
   applianceFileUrl.value = [];
+};
+
+const openQueryModal = () => {
+  isQueryModalVisible.value = true;
+};
+
+const closeQueryModal = () => {
+  isQueryModalVisible.value = false;
+  queryText.value = ''; // 清空输入框
+};
+
+const handleQuerySubmit = async () => {
+  if (!queryText.value.trim()) {
+    ElMessage.warning('请输入您的问题。');
+    return;
+  }
+
+  const currentQuery = queryText.value;
+  queryHistory.value.push({ question: currentQuery, answer: '正在查询...' }); // 添加到历史记录并显示加载状态
+  queryText.value = ''; // 清空输入框
+
+  await authStore.fetchSession();
+  const session = authStore.session;
+
+  if (!session) {
+    ElMessage.error('未登录或会话已过期，请重新登录。');
+    router.push('/auth');
+    // 更新历史记录中的状态
+    const lastEntry = queryHistory.value[queryHistory.value.length - 1];
+    if (lastEntry) lastEntry.answer = '查询失败：未登录。';
+    return;
+  }
+
+  const queryWebhookUrl = import.meta.env.VITE_N8N_QUERY_WEBHOOK_URL; // 使用新的环境变量
+
+  const formData = new FormData();
+  formData.append('query', currentQuery);
+  formData.append('sessionId', session.access_token); // 增加 sessionId
+  formData.append('isFirstQuery', isFirstQuery.value.toString()); // 增加 isFirstQuery 标志
+
+  try {
+    const response = await fetch(queryWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: formData
+    });
+
+    // 首次查询后将 isFirstQuery 设置为 false
+    if (isFirstQuery.value) {
+      isFirstQuery.value = false;
+    }
+
+    if (response.ok) {
+      const responseData = await response.json();
+      const answer = responseData.output || '未收到有效回复。'; // 将 answer 改为 output
+      ElMessage.success('查询成功！');
+      // 更新历史记录中的答案
+      const lastEntry = queryHistory.value[queryHistory.value.length - 1];
+      if (lastEntry) lastEntry.answer = answer;
+      await nextTick(); // 等待 DOM 更新
+      if (queryHistoryContainerRef.value) {
+        queryHistoryContainerRef.value.scrollTop = queryHistoryContainerRef.value.scrollHeight;
+      }
+    } else {
+      const errorData = await response.json();
+      ElMessage.error('查询失败: ' + (errorData.message || response.statusText));
+      // 更新历史记录中的错误信息
+      const lastEntry = queryHistory.value[queryHistory.value.length - 1];
+      if (lastEntry) lastEntry.answer = '查询失败: ' + (errorData.message || response.statusText);
+      await nextTick(); // 等待 DOM 更新
+      if (queryHistoryContainerRef.value) {
+        queryHistoryContainerRef.value.scrollTop = queryHistoryContainerRef.value.scrollHeight;
+      }
+    }
+  } catch (error: unknown) {
+    ElMessage.error('查询过程中发生错误: ' + (error as Error).message);
+    // 更新历史记录中的错误信息
+    const lastEntry = queryHistory.value[queryHistory.value.length - 1];
+    if (lastEntry) lastEntry.answer = '查询过程中发生错误: ' + (error as Error).message;
+  }
 };
 
 const fetchDevices = async () => {
@@ -60,7 +153,7 @@ const fetchDevices = async () => {
   }
 
   // Group devices by location
-  const groupedDevices = data.reduce((acc: { [key: string]: any[] }, device: any) => {
+  const groupedDevices = data.reduce((acc: { [key: string]: Appliance[] }, device: Appliance) => {
     const location = device.location || '未分组';
     if (!acc[location]) {
       acc[location] = [];
@@ -178,8 +271,8 @@ const handleSubmitAppliance = async () => {
       const errorData = await response.json();
       ElMessage.error('提交失败: ' + (errorData.message || response.statusText));
     }
-  } catch (error: any) {
-    ElMessage.error('提交过程中发生错误: ' + error.message);
+  } catch (error: unknown) {
+    ElMessage.error('提交过程中发生错误: ' + (error as Error).message);
   }
 };
 
@@ -208,7 +301,10 @@ onBeforeRouteUpdate(async (to, from, next) => {
           <template #header>
             <div class="card-header">
               <h2>我的家电</h2>
-              <el-button type="primary" @click="openAddApplianceModal">添加新家电</el-button>
+              <div>
+                <el-button type="primary" @click="openAddApplianceModal">添加新家电</el-button>
+                <el-button type="success" @click="openQueryModal">查询家电问题</el-button>
+              </div>
             </div>
           </template>
 
@@ -242,7 +338,7 @@ onBeforeRouteUpdate(async (to, from, next) => {
     </el-container>
   </div>
 
-  <!-- The Modal -->
+  <!-- 添加家电的 Modal -->
   <el-dialog v-model="isAddApplianceModalVisible" title="添加新家电" width="500" :before-close="closeAddApplianceModal">
     <el-form>
       <el-form-item label="描述">
@@ -256,6 +352,27 @@ onBeforeRouteUpdate(async (to, from, next) => {
       <span class="dialog-footer">
         <el-button @click="closeAddApplianceModal">取消</el-button>
         <el-button type="primary" @click="handleSubmitAppliance">智能存档</el-button>
+      </span>
+    </template>
+  </el-dialog>
+
+  <!-- 查询家电问题的 Modal -->
+  <el-dialog v-model="isQueryModalVisible" title="查询家电问题" width="600" :before-close="closeQueryModal">
+    <div class="query-history-container" ref="queryHistoryContainerRef">
+      <div v-for="(entry, index) in queryHistory" :key="index" class="query-entry">
+        <div class="query-question" v-html="renderMarkdown('**问:** ' + entry.question)"></div>
+        <div class="query-answer" v-html="renderMarkdown(entry.answer)"></div>
+      </div>
+    </div>
+    <el-form>
+      <el-form-item label="您的问题">
+        <el-input type="textarea" v-model="queryText" placeholder="例如：我的冰箱不制冷了怎么办？" :rows="3"></el-input>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="closeQueryModal">取消</el-button>
+        <el-button type="success" @click="handleQuerySubmit">查询</el-button>
       </span>
     </template>
   </el-dialog>
@@ -395,6 +512,43 @@ body {
   /* 恢复 Element Plus 默认 primary 按钮样式 */
 }
 
+.query-history-container {
+  max-height: 300px;
+  /* 设置最大高度 */
+  overflow-y: auto;
+  /* 允许垂直滚动 */
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  background-color: #f9fafc;
+}
+
+.query-entry {
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px dashed #e4e7ed;
+}
+
+.query-entry:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.query-question {
+  font-weight: bold;
+  color: #333;
+  /* 直接设置为黑色 */
+  margin-bottom: 5px;
+}
+
+.query-answer {
+  color: var(--color-text-light);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 :deep(.el-button--primary:hover) {
   box-shadow: var(--box-shadow-hover);
   transform: translateY(-2px);
@@ -411,11 +565,29 @@ body {
   transform: translateY(-1px);
 }
 
+:deep(.el-input__wrapper) {
+  border: 1px solid #dcdfe6;
+  /* 增加默认边框 */
+  box-shadow: none;
+  /* 移除默认阴影 */
+}
+
 :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--color-primary-start);
+  /* 聚焦时边框颜色 */
   box-shadow: 0 0 0 1px var(--color-primary-start) inset;
 }
 
+:deep(.el-textarea__inner) {
+  border: 1px solid #dcdfe6;
+  /* 增加默认边框 */
+  box-shadow: none;
+  /* 移除默认阴影 */
+}
+
 :deep(.el-textarea__inner:focus) {
+  border-color: var(--color-primary-start);
+  /* 聚焦时边框颜色 */
   box-shadow: 0 0 0 1px var(--color-primary-start) inset;
 }
 
