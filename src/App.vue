@@ -1,98 +1,162 @@
 <script setup lang="ts">
 import { RouterView, useRouter } from 'vue-router';
+import { onMounted } from 'vue';
 import { useAuthStore } from './stores/auth';
-import { computed } from 'vue';
-import { ElMessage } from 'element-plus';
+import type { User } from '@supabase/supabase-js';
 
-const authStore = useAuthStore();
 const router = useRouter();
+const authStore = useAuthStore();
 
-const userEmail = computed(() => authStore.session?.user?.email || '未登录');
+onMounted(() => {
+  authStore.fetchSession();
+});
+
+const goToLogin = () => {
+  router.push('/auth');
+};
+
+const handleLanguageChange = (lang: string) => {
+  // 在这里处理语言切换逻辑
+  console.log(`Language changed to: ${lang}`);
+};
 
 const handleLogout = async () => {
   try {
     await authStore.signOut();
-    ElMessage.success('退出成功！');
-    router.push('/auth');
-  } catch (error: any) {
-    ElMessage.error('退出失败: ' + error.message);
+    router.push('/'); // 退出后跳转到首页
+  } catch (error) {
+    console.error('Logout failed:', error);
   }
+};
+
+const getUserDisplayName = (user: User | null) => {
+  if (!user) return '用户';
+  return user.email || user.id; // 可以根据实际情况显示用户名或邮箱
 };
 </script>
 
 <template>
-  <!-- <div class="common-layout"> -->
-  <el-container>
-    <el-header class="common-header">
-      <div class="header-content">
-        <div class="logo">HomePact</div>
-        <el-menu class="header-menu" mode="horizontal" :ellipsis="false">
-          <el-menu-item index="1">核心功能</el-menu-item>
-          <el-menu-item index="2">工作原理</el-menu-item>
-          <el-menu-item index="4">关于我们</el-menu-item>
-        </el-menu>
-        <div class="user-info" v-if="authStore.session">
-          <span>欢迎，{{ userEmail }}</span>
-          <el-button type="danger" size="small" @click="handleLogout" style="margin-left: 10px;">退出</el-button>
-        </div>
+  <el-header class="fixed-header">
+    <div class="header-content">
+      <router-link to="/" class="logo">
+        <img src="/favicon.ico" alt="安家诺" class="logo-img" />
+        <span>安家诺</span>
+      </router-link>
+      <el-menu mode="horizontal" class="header-menu" :ellipsis="false">
+        <el-menu-item index="1">核心功能</el-menu-item>
+        <el-menu-item index="2">工作原理</el-menu-item>
+        <el-menu-item index="3">关于我们</el-menu-item>
+      </el-menu>
+      <div class="header-right">
+        <template v-if="router.currentRoute.value.path !== '/auth'">
+          <template v-if="authStore.user">
+            <el-dropdown @command="handleLanguageChange">
+              <span class="el-dropdown-link user-info-dropdown">
+                {{ getUserDisplayName(authStore.user) }}<i class="el-icon-arrow-down el-icon--right"></i>
+              </span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item disabled>{{ authStore.user.email }}</el-dropdown-item>
+                  <el-dropdown-item divided @click="handleLogout">退出</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+          <template v-else>
+            <el-button type="primary" @click="goToLogin">登录/注册</el-button>
+          </template>
+        </template>
+        <el-dropdown @command="handleLanguageChange">
+          <span class="el-dropdown-link">
+            语言切换<i class="el-icon-arrow-down el-icon--right"></i>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="zh">中文</el-dropdown-item>
+              <el-dropdown-item command="en">English</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
-    </el-header>
-    <el-main class="common-main">
-      <RouterView />
-    </el-main>
-    <el-footer class="common-footer">
-      © 2025 HomePact. All rights reserved.
-    </el-footer>
-  </el-container>
-  <!-- </div> -->
+    </div>
+  </el-header>
+
+  <RouterView />
+
+  <el-footer class="common-footer">
+    © 2025 HomePact. All rights reserved.
+  </el-footer>
 </template>
 
-<style scoped>
-.common-layout {
+<style>
+.fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  z-index: 1000;
   display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-.common-header {
-  background-color: #409EFF;
-  color: #fff;
-  padding: 0 20px;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  height: 60px;
-  /* 固定头部高度 */
+  padding: 0 20px;
+  border-bottom: 1px solid #eee;
 }
 
 .header-content {
-  width: 100%;
-  max-width: none;
-  /* 移除最大宽度限制 */
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
+  max-width: 1200px;
 }
 
 .logo {
+  display: flex;
+  align-items: center;
   font-size: 24px;
   font-weight: bold;
+  color: #d35400;
+  /* 暖色调Logo */
 }
 
-.user-info {
+.logo-img {
+  width: 40px;
+  height: 40px;
+  margin-right: 10px;
+}
+
+.header-menu {
+  background: none;
+  border-bottom: none;
+}
+
+.header-right {
   display: flex;
   align-items: center;
 }
 
-.user-info span {
-  margin-right: 10px;
+.el-dropdown-link {
+  cursor: pointer;
+  margin-left: 20px;
 }
 
-.common-main {
-  flex: 1;
-  padding: 20px;
-  background: linear-gradient(to bottom, #f0f2f5, #e0e2e5);
-  /* 渐变色背景 */
+.user-info-dropdown {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  height: 40px;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+.user-info-dropdown:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Ensure hover effect applies to the dropdown trigger itself */
+.el-dropdown .user-info-dropdown:hover {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .common-footer {

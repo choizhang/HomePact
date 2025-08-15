@@ -30,6 +30,7 @@ const isAddApplianceModalVisible = ref(false);
 const applianceDescription = ref('');
 const applianceFileUrl = ref<string[]>([]); // 用于存储文件URL数组
 const unifiedUploaderRef = ref<InstanceType<typeof UnifiedUploader> | null>(null); // 引用 UnifiedUploader 组件
+const isSubmitting = ref(false); // 控制智能存档按钮的加载状态和禁用状态
 
 const isQueryModalVisible = ref(false); // 控制查询对话框的可见性
 const queryText = ref(''); // 存储用户输入的查询文本
@@ -197,7 +198,7 @@ const deleteDevice = async (deviceId: string) => {
     }
   } catch (error) {
     ElMessage.info('已取消删除。');
-    console.error('取消删除时发生错误:', error);
+    console.info('已取消删除。:', error);
   }
 };
 
@@ -224,37 +225,39 @@ const handleSubmitAppliance = async () => {
     return;
   }
 
-  await authStore.fetchSession(); // 确保会话信息已加载
-  const session = authStore.session;
-
-  if (!session) {
-    ElMessage.error('未登录或会话已过期，请重新登录。');
-    router.push('/auth');
-    return;
-  }
-
-  const jwt = session.access_token;
-  const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
-
-  const formData = new FormData();
-  formData.append('raw_text', description);
-
-  // 将原始文件对象添加到 formData
-  filesToUpload.forEach((file, index) => {
-    formData.append(`file_${index}`, file, file.name);
-  });
-
-  // 处理已有的文件URL（如果它们不是通过当前会话上传的原始文件）
-  // 这里的逻辑需要根据实际后端需求调整。如果后端只接受文件，那么这些URL可能需要被忽略或特殊处理。
-  // 假设后端可以处理文件URL，或者这些URL是预览，最终只上传原始文件。
-  // 如果 fileUrls 中包含 base64 编码的图片，它们应该已经被 UnifiedUploader 转换为 File 对象并包含在 filesToUpload 中。
-  // 因此，这里只需要处理那些不是原始文件但需要传递给后端的 URL。
-  // 为了简化，我们假设所有需要上传的图片都通过 getFiles() 获取。
-  // 如果 fileUrls 中还包含外部已有的图片URL，且需要传递给后端，则需要额外处理。
-  // 目前的 UnifiedUploader 已经将所有图片（包括粘贴和拖拽的）转换为 File 对象，并通过 getFiles() 暴露。
-  // 所以，这里不再需要手动解析 base64。
+  isSubmitting.value = true; // 开始提交，设置loading状态
 
   try {
+    await authStore.fetchSession(); // 确保会话信息已加载
+    const session = authStore.session;
+
+    if (!session) {
+      ElMessage.error('未登录或会话已过期，请重新登录。');
+      router.push('/auth');
+      return;
+    }
+
+    const jwt = session.access_token;
+    const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
+
+    const formData = new FormData();
+    formData.append('raw_text', description);
+
+    // 将原始文件对象添加到 formData
+    filesToUpload.forEach((file, index) => {
+      formData.append(`file_${index}`, file, file.name);
+    });
+
+    // 处理已有的文件URL（如果它们不是通过当前会话上传的原始文件）
+    // 这里的逻辑需要根据实际后端需求调整。如果后端只接受文件，那么这些URL可能需要被忽略或特殊处理。
+    // 假设后端可以处理文件URL，或者这些URL是预览，最终只上传原始文件。
+    // 如果 fileUrls 中包含 base64 编码的图片，它们应该已经被 UnifiedUploader 转换为 File 对象并包含在 filesToUpload 中。
+    // 因此，这里只需要处理那些不是原始文件但需要传递给后端的 URL。
+    // 为了简化，我们假设所有需要上传的图片都通过 getFiles() 获取。
+    // 如果 fileUrls 中还包含外部已有的图片URL，且需要传递给后端，则需要额外处理。
+    // 目前的 UnifiedUploader 已经将所有图片（包括粘贴和拖拽的）转换为 File 对象，并通过 getFiles() 暴露。
+    // 所以，这里不再需要手动解析 base64。
+
     const response = await fetch(n8nWebhookUrl, {
       method: 'POST',
       headers: {
@@ -273,6 +276,8 @@ const handleSubmitAppliance = async () => {
     }
   } catch (error: unknown) {
     ElMessage.error('提交过程中发生错误: ' + (error as Error).message);
+  } finally {
+    isSubmitting.value = false; // 结束提交，取消loading状态
   }
 };
 
@@ -351,7 +356,8 @@ onBeforeRouteUpdate(async (to, from, next) => {
     <template #footer>
       <span class="dialog-footer">
         <el-button @click="closeAddApplianceModal">取消</el-button>
-        <el-button type="primary" @click="handleSubmitAppliance">智能存档</el-button>
+        <el-button type="primary" @click="handleSubmitAppliance" :loading="isSubmitting"
+          :disabled="isSubmitting">智能存档</el-button>
       </span>
     </template>
   </el-dialog>
