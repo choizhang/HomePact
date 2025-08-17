@@ -1,0 +1,60 @@
+
+:root {
+  --background: oklch(0.08 0 0); /* Very dark gray for background */
+  --foreground: oklch(0.98 0 0); /* Bright white for text on display */
+  --card: oklch(0.08 0 0); /* Card background, same as background */
+  --card-foreground: oklch(0.98 0 0); /* Card foreground, same as foreground */
+  --popover: oklch(0.08 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.6 0.16 50); /* Bright orange for operators */
+  --primary-foreground: oklch(0.98 0 0); /* White text on primary */
+  --secondary: oklch(0.2 0 0); /* Dark gray for number keys */
+  --secondary-foreground: oklch(0.98 0 0); /* White text on secondary */
+  --muted: oklch(0.3 0 0); /* Lighter gray for top function keys */
+  --muted-foreground: oklch(0.98 0 0); /* White text on muted */
+  --accent: oklch(0.6 0.16 50); /* Accent color, same as primary */
+  --accent-foreground: oklch(0.98 0 0); /* White text on accent */
+  --destructive: oklch(0.577 0.245 27.325); /* Red for destructive actions, if any */
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.15 0 0); /* Subtle border color */
+  --input: oklch(0.1 0 0); /* Input field background */
+  --ring: oklch(0.6 0.16 50); /* Ring color, same as primary */
+  --chart-1: oklch(0.81 0.1 252);
+  --chart-2: oklch(0.62 0.19 260);
+  --chart-3: oklch(0.55 0.22 263);
+  --chart-4: oklch(0.49 0.22 264);
+  --chart-5: oklch(0.42 0.18 266);
+  --sidebar: oklch(0.1 0 0);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.6 0.16 50);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.6 0.16 50);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.15 0 0);
+  --sidebar-ring: oklch(0.6 0.16 50);
+  --font-sans: "Space Grotesk", sans-serif;
+  --font-serif: "Space Grotesk", sans-serif;
+  --font-mono: "Space Grotesk", monospace;
+  --radius: 0.625rem; /* Large border-radius for rounded elements */
+  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0 4px 6px -1px hsl(0 0% 0% / 0.2), 0 2px 4px -1px hsl(0 0% 0% / 0.06); /* Subtle shadow for calculator body */
+  --shadow: 0 4px 6px -1px hsl(0 0% 0% / 0.2), 0 2px 4px -1px hsl(0 0% 0% / 0.06);
+  --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.2), 0 2px 4px -1px hsl(0 0% 0% / 0.06);
+  --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.2), 0 4px 6px -2px hsl(0 0% 0% / 0.05);
+  --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.2), 0 10px 10px -5px hsl(0 0% 0% / 0.04);
+  --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+body {
+  font-family: var(--font-sans) !important;
+  background-color: oklch(0.15 0 0) !important; /* Slightly lighter dark background for the overall page */
+  color: var(--foreground) !important;
+}

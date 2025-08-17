@@ -27,3 +27,8 @@ a,
     padding: 0; /* 移除内边距 */
   }
 }
+
+/* Remove outline for focus-visible elements */
+:focus-visible {
+  outline: none;
+}

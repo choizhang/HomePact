@@ -1,0 +1,54 @@
+
+:root {
+  --background: oklch(0.09 0 0); /* Dark background for a modern feel */
+  --foreground: oklch(0.95 0 0); /* Light text on dark background */
+  --card: oklch(0.12 0 0); /* Slightly lighter dark for card elements */
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.70 0.05 260); /* A subtle purplish-blue for primary actions, not too vibrant */
+  --primary-foreground: oklch(0.98 0 0); /* White text on primary buttons */
+  --secondary: oklch(0.18 0 0); /* A dark grey for secondary elements */
+  --secondary-foreground: oklch(0.80 0 0); /* Lighter grey text on secondary */
+  --muted: oklch(0.18 0 0);
+  --muted-foreground: oklch(0.60 0 0); /* Medium grey for muted text */
+  --accent: oklch(0.18 0 0); /* Same as secondary for accent, keeping it subtle */
+  --accent-foreground: oklch(0.80 0 0);
+  --destructive: oklch(0.55 0.25 20); /* A muted red for destructive actions */
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.25 0 0); /* Dark grey for borders */
+  --input: oklch(0.15 0 0); /* Slightly lighter dark for input fields */
+  --ring: oklch(0.70 0.05 260); /* Ring color matching primary */
+  --chart-1: oklch(0.70 0.05 260);
+  --chart-2: oklch(0.60 0.10 180); /* A muted green for charts */
+  --chart-3: oklch(0.50 0.15 90); /* A muted yellow for charts */
+  --chart-4: oklch(0.40 0.20 30); /* A muted orange for charts */
+  --chart-5: oklch(0.30 0.25 330); /* A muted pink for charts */
+  --sidebar: oklch(0.12 0 0);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.70 0.05 260);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.18 0 0);
+  --sidebar-accent-foreground: oklch(0.80 0 0);
+  --sidebar-border: oklch(0.25 0 0);
+  --sidebar-ring: oklch(0.70 0.05 260);
+  --font-sans: Inter, sans-serif; /* Modern, readable sans-serif font */
+  --font-serif: Lora, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --radius: 0.5rem; /* Standard rounded corners */
+  --shadow-2xs: 0 1px 2px hsl(0 0% 0% / 0.1);
+  --shadow-xs: 0 2px 4px hsl(0 0% 0% / 0.15);
+  --shadow-sm: 0 4px 6px hsl(0 0% 0% / 0.2);
+  --shadow: 0 6px 10px hsl(0 0% 0% / 0.25);
+  --shadow-md: 0 8px 12px hsl(0 0% 0% / 0.3);
+  --shadow-lg: 0 12px 18px hsl(0 0% 0% / 0.35);
+  --shadow-xl: 0 16px 24px hsl(0 0% 0% / 0.4);
+  --shadow-2xl: 0 20px 30px hsl(0 0% 0% / 0.45);
+  --tracking-normal: 0em;
+  --spacing: 0.5rem; /* Consistent spacing */
+
+  --radius-sm: calc(var(--radius) - 0.2rem);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 0.2rem);
+  --radius-xl: calc(var(--radius) + 0.4rem);
+}
