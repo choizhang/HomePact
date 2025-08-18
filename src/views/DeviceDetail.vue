@@ -2,7 +2,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
-import { ElMessage } from 'element-plus'; // 移除 ElIcon
+import { ElMessage, ElMessageBox } from 'element-plus'; // 导入 ElMessageBox
 import UnifiedUploader from '@/components/UnifiedUploader.vue'; // 导入新的文件上传组件
 
 const route = useRoute();
@@ -28,14 +28,59 @@ interface Appliance {
   enable: boolean;
   price: number | null; // 新增 price 字段
   raw_text: string | null; // 新增 raw_text 字段
+  cover_image: string | null; // 新增 cover_image 字段
 }
 
 const device = ref<Appliance | null>(null);
 const allFiles = ref<string[]>([]); // 用于文件上传和显示所有文件的字段，现在存储URL字符串
 const unifiedUploaderRef = ref<InstanceType<typeof UnifiedUploader> | null>(null); // 引用 UnifiedUploader 组件
 const isSaving = ref(false); // 控制保存按钮的loading状态和禁用状态
+const coverImage = ref<string | null>(null); // 新增 coverImage 字段
 
 const authStore = useAuthStore(); // 确保 authStore 在这里被定义
+
+const deleteDevice = async () => {
+  if (!deviceId.value) {
+    ElMessage.error('设备ID缺失。');
+    return;
+  }
+  try {
+    await ElMessageBox.confirm('确定要删除此家电吗？此操作不可逆！', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    });
+
+    const { error } = await supabase
+      .from('appliances')
+      .delete()
+      .eq('id', deviceId.value);
+
+    if (error) {
+      ElMessage.error('删除失败: ' + error.message);
+    } else {
+      ElMessage.success('删除成功！');
+      router.push('/device'); // 删除成功后返回列表页
+    }
+  } catch (error) {
+    ElMessage.info('已取消删除。');
+    console.info('已取消删除。:', error);
+  }
+};
+
+const updateDeviceEnableStatus = async (isEnabled: boolean) => {
+  if (!device.value) return;
+  const { error } = await supabase
+    .from('appliances')
+    .update({ enable: isEnabled })
+    .eq('id', device.value.id);
+
+  if (error) {
+    ElMessage.error('更新启用状态失败: ' + error.message);
+  } else {
+    ElMessage.success('启用状态更新成功！');
+  }
+};
 
 const fetchDeviceDetails = async () => {
   if (!deviceId.value) {
@@ -110,6 +155,8 @@ const fetchDeviceDetails = async () => {
   if (device.value) {
     // 将 UploadedFile[] 转换为 string[]
     allFiles.value = (device.value.files || []).map(file => file.url);
+    // 直接使用 device.cover_image 作为封面
+    coverImage.value = device.value.cover_image || null;
   }
 };
 
@@ -257,37 +304,42 @@ onBeforeUnmount(() => {
           </template>
 
           <el-form v-if="device" :model="device" label-width="120px">
+            <div class="device-overview">
+              <div class="cover-image-wrapper">
+                <img v-if="coverImage" :src="coverImage" alt="Cover Image" class="cover-image" />
+                <div v-else class="no-image-placeholder">
+                  暂无图片
+                </div>
+              </div>
+              <div class="device-info-summary">
+                <h2>{{ device.appliance_name }}</h2>
+                <p><strong>品牌:</strong> {{ device.brand }}</p>
+                <p><strong>购买日期:</strong> {{ device.purchase_date }}</p>
+                <p><strong>添加时间:</strong> {{ new Date(device.created_at).toLocaleString() }}</p>
+              </div>
+            </div>
+
+            <el-divider></el-divider>
+
             <el-form-item label="原始文本">
               <el-input type="textarea" v-model="device.raw_text" :rows="5"></el-input>
             </el-form-item>
             <el-form-item label="文件上传">
               <UnifiedUploader v-model="allFiles" ref="unifiedUploaderRef" />
             </el-form-item>
-            <el-form-item label="设备名称">
-              <el-input v-model="device.appliance_name" disabled></el-input>
-            </el-form-item>
-            <el-form-item label="品牌">
-              <el-input v-model="device.brand" disabled></el-input>
-            </el-form-item>
-            <el-form-item label="购买日期">
-              <el-date-picker v-model="device.purchase_date" type="date" placeholder="选择日期" value-format="YYYY-MM-DD"
-                style="width: 100%;" disabled></el-date-picker>
-            </el-form-item>
             <el-form-item label="位置">
               <el-input v-model="device.location" disabled></el-input>
             </el-form-item>
             <el-form-item label="启用状态">
-              <el-switch v-model="device.enable" disabled></el-switch>
+              <el-switch v-model="device.enable" @change="updateDeviceEnableStatus(device.enable)"></el-switch>
             </el-form-item>
             <el-form-item label="购买价格">
-              <el-input-number v-model="device.price" :min="0" :precision="2" disabled></el-input-number>
-            </el-form-item>
-            <el-form-item label="添加时间">
-              <span>{{ new Date(device.created_at).toLocaleString() }}</span>
+              <el-input-number v-model="device.price" :min="0" :precision="2"></el-input-number>
             </el-form-item>
 
             <el-form-item>
               <el-button type="primary" @click="saveDevice" :loading="isSaving" :disabled="isSaving">保存</el-button>
+              <el-button type="danger" @click="deleteDevice" :disabled="isSaving">删除</el-button>
               <el-button @click="cancelEdit" :disabled="isSaving">取消</el-button>
             </el-form-item>
           </el-form>
@@ -323,6 +375,73 @@ body {
   padding: 20px;
   background-color: var(--color-background-light);
   min-height: 100vh;
+}
+
+.device-overview {
+  display: flex;
+  align-items: flex-start;
+  /* Align items to the top */
+  gap: 30px;
+  /* Space between image and text */
+  margin-bottom: 30px;
+}
+
+.cover-image-wrapper {
+  flex-shrink: 0;
+  /* Prevent image from shrinking */
+  width: 180px;
+  /* Fixed width for the image container */
+  height: 180px;
+  /* Fixed height for the image container */
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #f0f2f5;
+  /* Placeholder background */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: var(--box-shadow-subtle);
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Ensure image covers the area without distortion */
+}
+
+.no-image-placeholder {
+  color: var(--color-text-light);
+  font-size: 14px;
+  text-align: center;
+}
+
+.device-info-summary {
+  flex-grow: 1;
+  /* Allow text to take remaining space */
+}
+
+.device-info-summary h2 {
+  font-size: 28px;
+  color: var(--color-text-dark);
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.device-info-summary p {
+  font-size: 16px;
+  color: var(--color-text-dark);
+  margin-bottom: 8px;
+}
+
+.device-info-summary p strong {
+  color: var(--color-text-light);
+  font-weight: 500;
+  margin-right: 5px;
+}
+
+.el-divider {
+  margin: 20px 0;
 }
 
 .page-card {

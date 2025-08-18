@@ -157,8 +157,8 @@ onBeforeUnmount(() => {
     <input type="file" ref="fileInput" @change="handleFileChange" multiple accept="image/*" style="display: none;" />
 
     <div class="uploader-container">
-      <div class="uploader-area" @click="triggerFileInput" @dragover.prevent="handleDragOver"
-        @drop.prevent="handleDrop">
+      <div class="uploader-area" @click="triggerFileInput" @dragover.prevent="handleDragOver" @drop.prevent="handleDrop"
+        v-loading="isLoading" element-loading-text="正在处理图片...">
         <el-icon :size="60" color="#409eff">
           <UploadFilled />
         </el-icon>

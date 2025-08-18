@@ -2,7 +2,8 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRouter, onBeforeRouteUpdate } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
+import { Check } from '@element-plus/icons-vue'; // 导入 Check 图标
 import UnifiedUploader from '@/components/UnifiedUploader.vue'; // 导入新的文件上传组件
 import { marked } from 'marked';
 
@@ -14,15 +15,25 @@ interface Appliance {
   appliance_name: string;
   brand: string;
   purchase_date: string;
+  price: number | null; // 新增 price 字段
   file_url: string;
   created_at: string;
   location: string;
   enable: boolean;
+  cover_image: string | null; // 新增 cover_image 字段
 }
 
 interface ApplianceGroup {
   location: string;
   devices: Appliance[];
+}
+
+interface FileManifestEntry {
+  url?: string;
+  name: string;
+  type?: string;
+  size?: number;
+  status?: 'new' | 'existing' | 'deleted'; // 新增status字段
 }
 
 const appliances = ref<ApplianceGroup[]>([]);
@@ -31,6 +42,12 @@ const applianceDescription = ref('');
 const applianceFileUrl = ref<string[]>([]); // 用于存储文件URL数组
 const unifiedUploaderRef = ref<InstanceType<typeof UnifiedUploader> | null>(null); // 引用 UnifiedUploader 组件
 const isSubmitting = ref(false); // 控制智能存档按钮的加载状态和禁用状态
+
+// 封面图片相关状态
+const coverImages = ref<string[]>([]); // 存储返回的base64图片数组
+const selectedCoverImage = ref<string | null>(null); // 存储当前选中的base64图片
+const generateButtonText = ref('新生成'); // 封面生成按钮文本
+const isGeneratingCover = ref(false); // 新增：控制封面生成按钮的loading状态
 
 const isQueryModalVisible = ref(false); // 控制查询对话框的可见性
 const queryText = ref(''); // 存储用户输入的查询文本
@@ -50,6 +67,9 @@ const closeAddApplianceModal = () => {
   isAddApplianceModalVisible.value = false;
   applianceDescription.value = '';
   applianceFileUrl.value = [];
+  coverImages.value = []; // 清空封面图片
+  selectedCoverImage.value = null; // 清空选中封面图片
+  generateButtonText.value = '新生成'; // 重置按钮文本
 };
 
 const openQueryModal = () => {
@@ -134,6 +154,71 @@ const handleQuerySubmit = async () => {
   }
 };
 
+// 生成封面图片
+const generateCoverImages = async () => {
+  isGeneratingCover.value = true; // 开始生成，设置loading为true
+
+  await authStore.fetchSession();
+  const session = authStore.session;
+
+  if (!session) {
+    ElMessage.error('未登录或会话已过期，请重新登录。');
+    router.push('/auth');
+    isGeneratingCover.value = false; // 结束生成，设置loading为false
+    return;
+  }
+
+  const generateCoverWebhookUrl = import.meta.env.VITE_N8N_GENERATE_COVER_WEBHOOK_URL; // 新增环境变量
+
+  try {
+    const response = await fetch(generateCoverWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json' // 明确指定内容类型为 JSON
+      },
+      body: JSON.stringify({
+        // 如果需要传递描述或其他参数，可以在这里添加
+        description: applianceDescription.value // 传递描述作为生成图片的参考
+      })
+    });
+
+    if (response.ok) {
+      const responseData = await response.json();
+      if (responseData && responseData.data && Array.isArray(responseData.data) && responseData.data.length > 0) {
+        // 为每张base64图片添加数据URI前缀，并从嵌套的data属性中提取
+        coverImages.value = responseData.data.map((item: { data: string }) => `data:image/png;base64,${item.data}`);
+        selectedCoverImage.value = coverImages.value[0]; // 默认选中第一张
+        generateButtonText.value = '换一换'; // 更新按钮文本
+        ElMessage.success('封面图片生成成功！');
+      } else {
+        ElMessage.warning('未收到有效的封面图片。');
+        coverImages.value = [];
+        selectedCoverImage.value = null;
+        generateButtonText.value = '新生成';
+      }
+    } else {
+      const errorData = await response.json();
+      ElMessage.error('生成封面失败: ' + (errorData.message || response.statusText));
+      coverImages.value = [];
+      selectedCoverImage.value = null;
+      generateButtonText.value = '新生成';
+    }
+  } catch (error: unknown) {
+    ElMessage.error('生成封面过程中发生错误: ' + (error as Error).message);
+    coverImages.value = [];
+    selectedCoverImage.value = null;
+    generateButtonText.value = '新生成';
+  } finally {
+    isGeneratingCover.value = false; // 结束生成，取消loading状态
+  }
+};
+
+// 选择封面图片
+const selectCoverImage = (image: string) => {
+  selectedCoverImage.value = image;
+};
+
 const fetchDevices = async () => {
   await authStore.fetchSession(); // 确保会话信息已加载
   const session = authStore.session;
@@ -146,15 +231,27 @@ const fetchDevices = async () => {
 
   const { data, error } = await supabase
     .from('appliances')
-    .select('*');
+    .select('*, cover_image'); // 确保选择 cover_image 字段
 
   if (error) {
     console.error('获取家电列表失败:', error.message);
     return;
   }
 
+  // Sort devices: enabled first, then by purchase_date in descending order
+  const sortedData = data.sort((a, b) => {
+    // Enabled devices come before disabled devices
+    if (a.enable && !b.enable) return -1;
+    if (!a.enable && b.enable) return 1;
+
+    // For devices with the same enable status, sort by purchase_date descending
+    const dateA = new Date(a.purchase_date || '1970-01-01').getTime(); // Handle null/invalid dates
+    const dateB = new Date(b.purchase_date || '1970-01-01').getTime();
+    return dateB - dateA; // Descending order
+  });
+
   // Group devices by location
-  const groupedDevices = data.reduce((acc: { [key: string]: Appliance[] }, device: Appliance) => {
+  const groupedDevices = sortedData.reduce((acc: { [key: string]: Appliance[] }, device: Appliance) => {
     const location = device.location || '未分组';
     if (!acc[location]) {
       acc[location] = [];
@@ -175,44 +272,6 @@ const fetchDevices = async () => {
     location,
     devices: groupedDevices[location]
   }));
-};
-
-const deleteDevice = async (deviceId: string) => {
-  try {
-    await ElMessageBox.confirm('确定要删除此家电吗？', '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
-    });
-
-    const { error } = await supabase
-      .from('appliances')
-      .delete()
-      .eq('id', deviceId);
-
-    if (error) {
-      ElMessage.error('删除失败: ' + error.message);
-    } else {
-      ElMessage.success('删除成功！');
-      fetchDevices(); // Refresh the list
-    }
-  } catch (error) {
-    ElMessage.info('已取消删除。');
-    console.info('已取消删除。:', error);
-  }
-};
-
-const updateDeviceEnableStatus = async (deviceId: string, isEnabled: boolean) => {
-  const { error } = await supabase
-    .from('appliances')
-    .update({ enable: isEnabled })
-    .eq('id', deviceId);
-
-  if (error) {
-    ElMessage.error('更新失败: ' + error.message);
-  } else {
-    console.log('Enable 状态更新成功！');
-  }
 };
 
 const handleSubmitAppliance = async () => {
@@ -243,20 +302,44 @@ const handleSubmitAppliance = async () => {
     const formData = new FormData();
     formData.append('raw_text', description);
 
+    // 构建 files_manifest
+    const filesManifest: FileManifestEntry[] = [];
+
+    // 添加已上传的文件的 URL (不包含封面图，封面图单独处理)
+    // 确保只添加有效的 HTTP/HTTPS URL，排除 base64 格式
+    fileUrls.forEach(url => {
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        const fileName = url.substring(url.lastIndexOf('/') + 1);
+        filesManifest.push({ url: url, name: fileName, status: 'existing' });
+      }
+    });
+
+    // 添加新上传的文件的信息，并设置 status 为 'new'
+    filesToUpload.forEach(file => {
+      filesManifest.push({ name: file.name, type: file.type, size: file.size, status: 'new' });
+    });
+
+    // 将 files_manifest 转换为 JSON 字符串并添加到 formData
+    formData.append('files_manifest', JSON.stringify(filesManifest));
+
     // 将原始文件对象添加到 formData
     filesToUpload.forEach((file, index) => {
       formData.append(`file_${index}`, file, file.name);
     });
 
-    // 处理已有的文件URL（如果它们不是通过当前会话上传的原始文件）
-    // 这里的逻辑需要根据实际后端需求调整。如果后端只接受文件，那么这些URL可能需要被忽略或特殊处理。
-    // 假设后端可以处理文件URL，或者这些URL是预览，最终只上传原始文件。
-    // 如果 fileUrls 中包含 base64 编码的图片，它们应该已经被 UnifiedUploader 转换为 File 对象并包含在 filesToUpload 中。
-    // 因此，这里只需要处理那些不是原始文件但需要传递给后端的 URL。
-    // 为了简化，我们假设所有需要上传的图片都通过 getFiles() 获取。
-    // 如果 fileUrls 中还包含外部已有的图片URL，且需要传递给后端，则需要额外处理。
-    // 目前的 UnifiedUploader 已经将所有图片（包括粘贴和拖拽的）转换为 File 对象，并通过 getFiles() 暴露。
-    // 所以，这里不再需要手动解析 base64。
+    // 将选中的封面图片（如果存在）添加到 formData
+    if (selectedCoverImage.value) {
+      // 将 base64 字符串转换为 Blob 对象
+      const byteString = atob(selectedCoverImage.value.split(',')[1]);
+      const mimeString = selectedCoverImage.value.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mimeString });
+      formData.append('cover_image', blob, 'cover_image.png'); // 假设为 png 格式
+    }
 
     const response = await fetch(n8nWebhookUrl, {
       method: 'POST',
@@ -320,19 +403,25 @@ onBeforeRouteUpdate(async (to, from, next) => {
           <div v-for="group in appliances" :key="group.location" class="appliance-group">
             <h3 class="group-title">{{ group.location }}</h3>
             <el-row :gutter="20">
-              <el-col :xs="24" :sm="24" :md="12" :lg="8" v-for="device in group.devices" :key="device.id">
-                <el-card class="appliance-item">
-                  <h4>{{ device.appliance_name || '无名称' }}</h4>
-                  <p>品牌: {{ device.brand || '无品牌' }}</p>
-                  <p>购买日期: {{ device.purchase_date || '无购买日期' }}</p>
-                  <p v-if="device.file_url"><a :href="device.file_url" target="_blank">查看文件</a></p>
-                  <p>添加时间: {{ new Date(device.created_at).toLocaleString() }}</p>
-                  <div class="item-actions">
-                    <el-button type="primary" size="small" @click="router.push(`/device/${device.id}`)">编辑</el-button>
-                    <el-button type="danger" size="small" @click="deleteDevice(device.id)">删除</el-button>
-                    <el-switch v-model="device.enable"
-                      style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949"
-                      @change="updateDeviceEnableStatus(device.id, device.enable)" />
+              <el-col :xs="24" :sm="24" :md="12" :lg="12" v-for="device in group.devices" :key="device.id">
+                <el-card class="appliance-item" :class="{ 'disabled-appliance-item': !device.enable }"
+                  @click="router.push(`/device/${device.id}`)">
+                  <div class="appliance-content">
+                    <div class="appliance-image-wrapper">
+                      <img v-if="device.cover_image" :src="device.cover_image" alt="封面图片"
+                        class="appliance-cover-image" />
+                      <div v-else class="no-image-placeholder-small">
+                        暂无图片
+                      </div>
+                    </div>
+                    <div class="appliance-info">
+                      <h4>{{ device.appliance_name || '无名称' }}</h4>
+                      <p>价格: {{ device.price || '无价格' }}</p>
+                      <p>购买日期: {{ device.purchase_date || '无购买日期' }}</p>
+                    </div>
+                  </div>
+                  <div v-if="!device.enable" class="disabled-overlay">
+                    <span>已禁用</span>
                   </div>
                 </el-card>
               </el-col>
@@ -349,8 +438,25 @@ onBeforeRouteUpdate(async (to, from, next) => {
       <el-form-item label="描述">
         <el-input type="textarea" v-model="applianceDescription" placeholder="例如：我客厅新买的海尔冰箱，双开门的" :rows="4"></el-input>
       </el-form-item>
-      <el-form-item label="上传文件">
+      <el-form-item label="上传资料文件">
         <UnifiedUploader v-model="applianceFileUrl" ref="unifiedUploaderRef" />
+      </el-form-item>
+
+      <!-- 封面选项 -->
+      <el-form-item label="封面选项">
+        <el-button @click="generateCoverImages" :loading="isGeneratingCover" :disabled="isGeneratingCover">{{
+          generateButtonText }}</el-button>
+        <div v-if="coverImages.length > 0" class="cover-images-container">
+          <div v-for="(image, index) in coverImages" :key="index" class="cover-image-wrapper"
+            :class="{ 'selected': image === selectedCoverImage }" @click="selectCoverImage(image)">
+            <img :src="image" alt="封面图片" class="cover-image" />
+            <div v-if="image === selectedCoverImage" class="selected-overlay">
+              <el-icon>
+                <Check />
+              </el-icon>
+            </div>
+          </div>
+        </div>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -460,17 +566,20 @@ body {
 
 .appliance-item {
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
+  /* 稍微增大圆角 */
   box-shadow: var(--box-shadow-subtle);
-  margin-bottom: 20px;
+  margin-bottom: 25px;
+  /* 增加底部间距 */
   transition: all 0.3s ease;
-  padding: 20px;
+  padding: 25px;
+  /* 增加内边距 */
   display: flex;
-  /* 使用Flexbox */
   flex-direction: column;
-  /* 垂直堆叠内容 */
   justify-content: space-between;
-  /* 内容之间平均分布空间 */
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
 }
 
 .appliance-item:hover {
@@ -478,22 +587,99 @@ body {
   box-shadow: var(--box-shadow-hover);
 }
 
+.appliance-item.disabled-appliance-item {
+  filter: grayscale(100%);
+  /* 整体置灰 */
+  opacity: 0.7;
+  /* 降低透明度 */
+  cursor: not-allowed;
+  /* 禁用鼠标样式 */
+}
+
+.disabled-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.7);
+  /* 半透明白色蒙层 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 24px;
+  font-weight: bold;
+  color: #666;
+  /* 蒙层文字颜色 */
+  z-index: 10;
+  /* 确保蒙层在内容之上 */
+}
+
+.appliance-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* 增加图片和文字之间的间距 */
+  margin-bottom: 15px;
+}
+
+.appliance-image-wrapper {
+  flex-shrink: 0;
+  width: 200px;
+  /* 扩大图片尺寸 */
+  height: 200px;
+  /* 扩大图片尺寸 */
+  border-radius: 10px;
+  /* 稍微增大圆角 */
+  overflow: hidden;
+  background-color: #f0f2f5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.appliance-cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.no-image-placeholder-small {
+  color: var(--color-text-light);
+  font-size: 12px;
+  text-align: center;
+}
+
+.appliance-info {
+  flex-grow: 1;
+  min-width: 0;
+  /* 允许内容收缩 */
+}
+
 .appliance-item h4 {
   margin-top: 0;
   color: var(--color-text-dark);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 500;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  white-space: nowrap;
+  /* 防止标题换行 */
+  overflow: hidden;
+  /* 隐藏溢出内容 */
+  text-overflow: ellipsis;
+  /* 显示省略号 */
 }
 
 .appliance-item p {
   color: var(--color-text-light);
-  font-size: 14px;
-  line-height: 1.6;
-  margin-bottom: 10px;
-  /* 增加行间距 */
+  font-size: 15px;
+  /* 增大正文字体 */
+  line-height: 1.7;
+  /* 调整行高 */
+  margin-bottom: 8px;
+  /* 调整行间距 */
   word-break: break-word;
-  /* 确保长文本能够换行 */
 }
 
 .appliance-item a {
@@ -553,6 +739,62 @@ body {
   color: var(--color-text-light);
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.cover-images-container {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.cover-image-wrapper {
+  width: 120px;
+  /* 设置合适的宽度 */
+  height: 90px;
+  /* 设置合适的宽高比 */
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease-in-out;
+}
+
+.cover-image-wrapper.selected {
+  border-color: var(--el-color-primary);
+  /* 选中时的边框颜色 */
+  box-shadow: 0 0 0 2px var(--el-color-primary);
+}
+
+.cover-image-wrapper:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 确保图片填充容器 */
+  display: block;
+}
+
+.selected-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.selected-overlay .el-icon {
+  color: white;
+  font-size: 30px;
 }
 
 :deep(.el-button--primary:hover) {
