@@ -81,3 +81,5 @@ npm update -g @google/gemini-cli
 gemini --version
 
 git config user.email
+
+sudo chown -R $(whoami) /Users/choizhang/HomePact/node_modules

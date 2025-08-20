@@ -3,7 +3,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
-import viteImagemin from 'vite-plugin-imagemin' // 使用 anncwb 的 vite-plugin-imagemin
+import { ViteImageOptimizer } from 'vite-plugin-image-optimizer'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -13,33 +13,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       vueDevTools(),
-      viteImagemin({
-        filter: (file: string) => /\.(jpe?g|png|gif|svg|ico)$/i.test(file),
-        gifsicle: {
-          optimizationLevel: 7,
-          interlaced: false,
-        },
-        mozjpeg: {
-          quality: 80,
-        },
-        pngquant: {
-          quality: [0.8, 0.9],
-          speed: 4,
-        },
-        svgo: {
-          plugins: [
-            {
-              name: 'removeViewBox',
-              active: false,
-            },
-            {
-              name: 'addAttributesToSVGElement',
-              params: {
-                attributes: [{ xmlns: 'http://www.w3.org/2000/svg' }],
-              },
-            },
-          ],
-        },
+      ViteImageOptimizer({
+        /* pass your options here */
       }),
     ],
     resolve: {

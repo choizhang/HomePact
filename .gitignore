@@ -19,8 +19,7 @@ coverage
 .env*
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode
 .idea
 *.suo
 *.ntvs*
@@ -29,3 +28,7 @@ coverage
 *.sw?
 
 *.tsbuildinfo
+
+# Gemini-specific
+.gemini-clipboard
+.superdesign
