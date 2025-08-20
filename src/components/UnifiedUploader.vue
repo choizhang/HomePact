@@ -18,6 +18,7 @@ const emit = defineEmits(['update:modelValue', 'file-uploaded']);
 const fileInput = ref<HTMLInputElement | null>(null);
 const imagePreviews = ref<ImagePreview[]>([]);
 let nextImageId = 0;
+const isLoading = ref(false); // 添加 isLoading 状态
 
 // 大图预览相关状态
 const showViewer = ref(false);
