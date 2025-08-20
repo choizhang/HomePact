@@ -22,6 +22,51 @@ const handleLanguageChange = (lang: string) => {
   console.log(`Language changed to: ${lang}`);
 };
 
+const showFamilyInfoModal = ref(false);
+const familyInfoContent = ref('');
+
+const handleFamilyInfo = async () => {
+  if (authStore.user) {
+    // Fetch existing family info from Supabase
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('profiles')
+      .eq('id', authStore.user.id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found
+      console.error('Error fetching family info:', error);
+      ElMessage.error('获取家庭信息失败');
+      return;
+    }
+
+    if (data) {
+      familyInfoContent.value = data.profiles || '';
+    } else {
+      familyInfoContent.value = '';
+    }
+    showFamilyInfoModal.value = true;
+  } else {
+    ElMessage.warning('请先登录以设置家庭信息');
+  }
+};
+
+const handleSaveFamilyInfo = async (text: string) => {
+  if (authStore.user) {
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({ id: authStore.user.id, profiles: text }, { onConflict: 'id' });
+
+    if (error) {
+      console.error('Error saving family info:', error);
+      ElMessage.error('保存家庭信息失败');
+    } else {
+      ElMessage.success('家庭信息保存成功');
+      familyInfoContent.value = text; // Update local state
+    }
+  }
+};
+
 const handleLogout = async () => {
   try {
     await authStore.signOut();
@@ -39,7 +84,10 @@ const getUserDisplayName = (user: User | null) => {
 const displayLanguage = computed(() => {
   return currentLanguage.value === 'zh' ? '中文' : 'English';
 });
-import { Check, ArrowDown } from '@element-plus/icons-vue'
+import { Check, ArrowDown } from '@element-plus/icons-vue';
+import FamilyInfoModal from './FamilyInfoModal.vue';
+import { supabase } from '@/supabase'; // Assuming you have a supabase client setup
+import { ElMessage } from 'element-plus';
 
 </script>
 
@@ -65,6 +113,7 @@ import { Check, ArrowDown } from '@element-plus/icons-vue'
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item disabled>{{ authStore.user.email }}</el-dropdown-item>
+                  <el-dropdown-item @click="handleFamilyInfo">家庭信息</el-dropdown-item>
                   <el-dropdown-item divided @click="handleLogout">退出</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -98,6 +147,8 @@ import { Check, ArrowDown } from '@element-plus/icons-vue'
       </div>
     </div>
   </el-header>
+
+  <FamilyInfoModal v-model="showFamilyInfoModal" :initial-text="familyInfoContent" @save="handleSaveFamilyInfo" />
 </template>
 
 <style scoped>
