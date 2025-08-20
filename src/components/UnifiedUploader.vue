@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import { ElIcon, ElButton, ElImageViewer } from 'element-plus'; // 导入 ElImageViewer
+import { ElIcon, ElButton } from 'element-plus';
+import ElImageViewer from 'element-plus/es/components/image-viewer/index'; // 导入 ElImageViewer
 import { UploadFilled, Delete } from '@element-plus/icons-vue';
 
 interface ImagePreview {
@@ -97,17 +98,74 @@ const handleDrop = (event: DragEvent) => {
   }
 };
 
-const processFiles = (files: File[]) => {
-  files.forEach(file => {
+const compressImage = (file: File): Promise<File> => {
+  return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const imageUrl = e.target?.result as string;
-      const newId = nextImageId++;
-      imagePreviews.value.push({ id: newId, url: imageUrl, file: file });
-      updateModelValue();
-      emit('file-uploaded', imageUrl); // 触发文件上传事件，传递URL
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 设置最大宽度和高度，保持图片比例
+        const maxWidth = 1200; // 例如，最大宽度1200px
+        const maxHeight = 1200; // 例如，最大高度1200px
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width;
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height;
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        // 压缩图片，质量为 0.8
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const compressedFile = new File([blob], file.name, {
+              type: file.type,
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          } else {
+            resolve(file); // 压缩失败，返回原文件
+          }
+        }, file.type, 0.8); // 0.8 是压缩质量
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  });
+};
+
+const processFiles = (files: File[]) => {
+  isLoading.value = true; // 开始处理文件时显示加载状态
+  const promises = files.map(file => compressImage(file));
+
+  Promise.all(promises).then(compressedFiles => {
+    compressedFiles.forEach(compressedFile => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageUrl = e.target?.result as string;
+        const newId = nextImageId++;
+        imagePreviews.value.push({ id: newId, url: imageUrl, file: compressedFile });
+        updateModelValue();
+        emit('file-uploaded', imageUrl); // 触发文件上传事件，传递URL
+      };
+      reader.readAsDataURL(compressedFile);
+    });
+  }).finally(() => {
+    isLoading.value = false; // 处理完成后隐藏加载状态
   });
 };
 
