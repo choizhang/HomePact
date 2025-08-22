@@ -1,13 +1,21 @@
+<script lang="ts">
+export default {
+  name: 'DeviceList'
+}
+</script>
+
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, nextTick, reactive, onActivated } from 'vue';
 import { useRouter, onBeforeRouteUpdate } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
-import { ElMessage } from 'element-plus';
+import { useUiStore } from '@/stores/ui';
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { Check } from '@element-plus/icons-vue'; // 导入 Check 图标
 import UnifiedUploader from '@/components/UnifiedUploader.vue'; // 导入新的文件上传组件
 import { marked } from 'marked';
 
 const authStore = useAuthStore();
+const uiStore = useUiStore();
 const router = useRouter();
 
 interface Appliance {
@@ -38,14 +46,28 @@ interface FileManifestEntry {
 
 const appliances = ref<ApplianceGroup[]>([]);
 const isAddApplianceModalVisible = ref(false);
-const applianceDescription = ref('');
-const applianceFileUrl = ref<string[]>([]); // 用于存储文件URL数组
 const unifiedUploaderRef = ref<InstanceType<typeof UnifiedUploader> | null>(null); // 引用 UnifiedUploader 组件
 const isSubmitting = ref(false); // 控制智能存档按钮的加载状态和禁用状态
 
+// 添加家电表单相关
+const addApplianceFormRef = ref<FormInstance>();
+const applianceFormData = reactive({
+  description: '',
+  coverImage: '' as string | null,
+  files: [] as string[],
+});
+
+const addApplianceFormRules = reactive<FormRules>({
+  description: [
+    { required: true, message: '请输入家电的详细描述', trigger: 'blur' },
+  ],
+  coverImage: [
+    { required: true, message: '请生成并选择一张封面图片', trigger: 'change' },
+  ],
+});
+
 // 封面图片相关状态
 const coverImages = ref<string[]>([]); // 存储返回的base64图片数组
-const selectedCoverImage = ref<string | null>(null); // 存储当前选中的base64图片
 const generateButtonText = ref('新生成'); // 封面生成按钮文本
 const isGeneratingCover = ref(false); // 新增：控制封面生成按钮的loading状态
 
@@ -65,10 +87,11 @@ const openAddApplianceModal = () => {
 
 const closeAddApplianceModal = () => {
   isAddApplianceModalVisible.value = false;
-  applianceDescription.value = '';
-  applianceFileUrl.value = [];
+  addApplianceFormRef.value?.resetFields();
+  applianceFormData.description = '';
+  applianceFormData.coverImage = null;
+  applianceFormData.files = [];
   coverImages.value = []; // 清空封面图片
-  selectedCoverImage.value = null; // 清空选中封面图片
   generateButtonText.value = '新生成'; // 重置按钮文本
 };
 
@@ -179,7 +202,7 @@ const generateCoverImages = async () => {
       },
       body: JSON.stringify({
         // 如果需要传递描述或其他参数，可以在这里添加
-        description: applianceDescription.value // 传递描述作为生成图片的参考
+        description: applianceFormData.description // 传递描述作为生成图片的参考
       })
     });
 
@@ -188,26 +211,26 @@ const generateCoverImages = async () => {
       if (responseData && responseData.data && Array.isArray(responseData.data) && responseData.data.length > 0) {
         // 为每张base64图片添加数据URI前缀，并从嵌套的data属性中提取
         coverImages.value = responseData.data.map((item: { data: string }) => `data:image/png;base64,${item.data}`);
-        selectedCoverImage.value = coverImages.value[0]; // 默认选中第一张
+        applianceFormData.coverImage = coverImages.value[0]; // 默认选中第一张
         generateButtonText.value = '换一换'; // 更新按钮文本
         ElMessage.success('封面图片生成成功！');
       } else {
         ElMessage.warning('未收到有效的封面图片。');
         coverImages.value = [];
-        selectedCoverImage.value = null;
+        applianceFormData.coverImage = null;
         generateButtonText.value = '新生成';
       }
     } else {
       const errorData = await response.json();
       ElMessage.error('生成封面失败: ' + (errorData.message || response.statusText));
       coverImages.value = [];
-      selectedCoverImage.value = null;
+      applianceFormData.coverImage = null;
       generateButtonText.value = '新生成';
     }
   } catch (error: unknown) {
     ElMessage.error('生成封面过程中发生错误: ' + (error as Error).message);
     coverImages.value = [];
-    selectedCoverImage.value = null;
+    applianceFormData.coverImage = null;
     generateButtonText.value = '新生成';
   } finally {
     isGeneratingCover.value = false; // 结束生成，取消loading状态
@@ -216,7 +239,7 @@ const generateCoverImages = async () => {
 
 // 选择封面图片
 const selectCoverImage = (image: string) => {
-  selectedCoverImage.value = image;
+  applianceFormData.coverImage = image;
 };
 
 const fetchDevices = async () => {
@@ -275,97 +298,107 @@ const fetchDevices = async () => {
 };
 
 const handleSubmitAppliance = async () => {
-  const description = applianceDescription.value;
-  const filesToUpload = unifiedUploaderRef.value?.getFiles() || [];
-  const fileUrls = applianceFileUrl.value; // 包含所有图片URL，包括base64和已上传的URL
+  if (!addApplianceFormRef.value) return;
+  await addApplianceFormRef.value.validate(async (valid) => {
+    if (valid) {
+      const filesToUpload = unifiedUploaderRef.value?.getFiles() || [];
 
-  if (!description && filesToUpload.length === 0 && fileUrls.length === 0) {
-    ElMessage.error('请输入描述或上传文件。');
-    return;
-  }
+      isSubmitting.value = true; // 开始提交，设置loading状态
 
-  isSubmitting.value = true; // 开始提交，设置loading状态
+      try {
+        await authStore.fetchSession(); // 确保会话信息已加载
+        const session = authStore.session;
 
-  try {
-    await authStore.fetchSession(); // 确保会话信息已加载
-    const session = authStore.session;
+        if (!session) {
+          ElMessage.error('未登录或会话已过期，请重新登录。');
+          router.push('/auth');
+          return;
+        }
 
-    if (!session) {
-      ElMessage.error('未登录或会话已过期，请重新登录。');
-      router.push('/auth');
-      return;
-    }
+        const jwt = session.access_token;
+        const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
 
-    const jwt = session.access_token;
-    const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
+        const formData = new FormData();
+        formData.append('raw_text', applianceFormData.description);
 
-    const formData = new FormData();
-    formData.append('raw_text', description);
+        // 构建 files_manifest
+        const filesManifest: FileManifestEntry[] = [];
 
-    // 构建 files_manifest
-    const filesManifest: FileManifestEntry[] = [];
+        // 添加已上传的文件的 URL (不包含封面图，封面图单独处理)
+        // 确保只添加有效的 HTTP/HTTPS URL，排除 base64 格式
+        applianceFormData.files.forEach(url => {
+          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            const fileName = url.substring(url.lastIndexOf('/') + 1);
+            filesManifest.push({ url: url, name: fileName, status: 'existing' });
+          }
+        });
 
-    // 添加已上传的文件的 URL (不包含封面图，封面图单独处理)
-    // 确保只添加有效的 HTTP/HTTPS URL，排除 base64 格式
-    fileUrls.forEach(url => {
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-        const fileName = url.substring(url.lastIndexOf('/') + 1);
-        filesManifest.push({ url: url, name: fileName, status: 'existing' });
+        // 添加新上传的文件的信息，并设置 status 为 'new'
+        filesToUpload.forEach(file => {
+          filesManifest.push({ name: file.name, type: file.type, size: file.size, status: 'new' });
+        });
+
+        // 将 files_manifest 转换为 JSON 字符串并添加到 formData
+        formData.append('files_manifest', JSON.stringify(filesManifest));
+
+        // 将原始文件对象添加到 formData
+        filesToUpload.forEach((file, index) => {
+          formData.append(`file_${index}`, file, file.name);
+        });
+
+        // 将选中的封面图片（如果存在）添加到 formData
+        if (applianceFormData.coverImage) {
+          // 将 base64 字符串转换为 Blob 对象
+          const byteString = atob(applianceFormData.coverImage.split(',')[1]);
+          const mimeString = applianceFormData.coverImage.split(',')[0].split(':')[1].split(';')[0];
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([ab], { type: mimeString });
+          formData.append('cover_image', blob, 'cover_image.png'); // 假设为 png 格式
+        }
+
+        const response = await fetch(n8nWebhookUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${jwt}`
+          },
+          body: formData
+        });
+
+        if (response.ok) {
+          ElMessage.success('家电信息已成功提交！');
+          closeAddApplianceModal(); // 仅在成功时关闭弹窗
+          fetchDevices(); // 刷新列表
+        } else {
+          const errorData = await response.json();
+          // 报错时不关闭弹窗，仅提示
+          ElMessage.error('提交失败: ' + (errorData.message || response.statusText));
+        }
+      } catch (error: unknown) {
+        ElMessage.error('提交过程中发生错误: ' + (error as Error).message);
+      } finally {
+        isSubmitting.value = false; // 结束提交，取消loading状态
       }
-    });
-
-    // 添加新上传的文件的信息，并设置 status 为 'new'
-    filesToUpload.forEach(file => {
-      filesManifest.push({ name: file.name, type: file.type, size: file.size, status: 'new' });
-    });
-
-    // 将 files_manifest 转换为 JSON 字符串并添加到 formData
-    formData.append('files_manifest', JSON.stringify(filesManifest));
-
-    // 将原始文件对象添加到 formData
-    filesToUpload.forEach((file, index) => {
-      formData.append(`file_${index}`, file, file.name);
-    });
-
-    // 将选中的封面图片（如果存在）添加到 formData
-    if (selectedCoverImage.value) {
-      // 将 base64 字符串转换为 Blob 对象
-      const byteString = atob(selectedCoverImage.value.split(',')[1]);
-      const mimeString = selectedCoverImage.value.split(',')[0].split(':')[1].split(';')[0];
-      const ab = new ArrayBuffer(byteString.length);
-      const ia = new Uint8Array(ab);
-      for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-      }
-      const blob = new Blob([ab], { type: mimeString });
-      formData.append('cover_image', blob, 'cover_image.png'); // 假设为 png 格式
-    }
-
-    const response = await fetch(n8nWebhookUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${jwt}`
-      },
-      body: formData
-    });
-
-    if (response.ok) {
-      ElMessage.success('家电信息已成功提交！');
-      closeAddApplianceModal(); // Close the modal
-      fetchDevices(); // Refresh the list
     } else {
-      const errorData = await response.json();
-      ElMessage.error('提交失败: ' + (errorData.message || response.statusText));
+      ElMessage.error('请检查表单，所有必填项都需填写。');
+      return false;
     }
-  } catch (error: unknown) {
-    ElMessage.error('提交过程中发生错误: ' + (error as Error).message);
-  } finally {
-    isSubmitting.value = false; // 结束提交，取消loading状态
-  }
+  });
 };
 
 onMounted(() => {
   fetchDevices();
+});
+
+onActivated(() => {
+  // 当组件被缓存后再次激活时，检查是否需要刷新数据
+  if (uiStore.isDeviceListStale) {
+    fetchDevices();
+    uiStore.setDeviceListStale(false); // 重置标记
+  }
 });
 
 onBeforeUnmount(() => {
@@ -433,24 +466,23 @@ onBeforeRouteUpdate(async (to, from, next) => {
   </div>
 
   <!-- 添加家电的 Modal -->
-  <el-dialog v-model="isAddApplianceModalVisible" title="添加新家电" width="500" :before-close="closeAddApplianceModal">
-    <el-form>
-      <el-form-item label="描述">
-        <el-input type="textarea" v-model="applianceDescription" placeholder="例如：我客厅新买的海尔冰箱，双开门的" :rows="4"></el-input>
+  <el-dialog v-model="isAddApplianceModalVisible" title="添加新家电" width="650px" :before-close="closeAddApplianceModal">
+    <el-form ref="addApplianceFormRef" :model="applianceFormData" :rules="addApplianceFormRules" label-position="top">
+      <el-form-item label="描述" prop="description">
+        <el-input type="textarea" v-model="applianceFormData.description" placeholder="例如：我客厅新买的海尔冰箱，双开门的。请详细描述，以便AI更好地为您生成封面和整理信息。" :rows="4"></el-input>
       </el-form-item>
-      <el-form-item label="上传资料文件">
-        <UnifiedUploader v-model="applianceFileUrl" ref="unifiedUploaderRef" />
-      </el-form-item>
-
-      <!-- 封面选项 -->
-      <el-form-item label="封面选项">
-        <el-button @click="generateCoverImages" :loading="isGeneratingCover" :disabled="isGeneratingCover">{{
-          generateButtonText }}</el-button>
+      
+      <el-form-item label="封面" prop="coverImage">
+        <div class="cover-generation-area">
+          <el-button @click="generateCoverImages" :loading="isGeneratingCover" :disabled="isGeneratingCover">{{
+            generateButtonText }}</el-button>
+          <span class="cover-tip">AI将根据您的描述生成封面图</span>
+        </div>
         <div v-if="coverImages.length > 0" class="cover-images-container">
           <div v-for="(image, index) in coverImages" :key="index" class="cover-image-wrapper"
-            :class="{ 'selected': image === selectedCoverImage }" @click="selectCoverImage(image)">
+            :class="{ 'selected': image === applianceFormData.coverImage }" @click="selectCoverImage(image)">
             <img :src="image" alt="封面图片" class="cover-image" />
-            <div v-if="image === selectedCoverImage" class="selected-overlay">
+            <div v-if="image === applianceFormData.coverImage" class="selected-overlay">
               <el-icon>
                 <Check />
               </el-icon>
@@ -458,6 +490,11 @@ onBeforeRouteUpdate(async (to, from, next) => {
           </div>
         </div>
       </el-form-item>
+
+      <el-form-item label="上传资料文件 (选填)">
+        <UnifiedUploader v-model="applianceFormData.files" ref="unifiedUploaderRef" />
+      </el-form-item>
+
     </el-form>
     <template #footer>
       <span class="dialog-footer">
@@ -739,6 +776,18 @@ body {
   color: var(--color-text-light);
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.cover-generation-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.cover-tip {
+  font-size: 12px;
+  color: #999;
 }
 
 .cover-images-container {

@@ -6,7 +6,11 @@ import AppFooter from './components/AppFooter.vue';
 
 <template>
   <AppHeader />
-  <RouterView />
+  <router-view v-slot="{ Component }">
+    <keep-alive include="DeviceList">
+      <component :is="Component" />
+    </keep-alive>
+  </router-view>
   <AppFooter />
 </template>
 

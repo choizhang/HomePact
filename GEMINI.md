@@ -1,57 +1,61 @@
-# GEMINI.md
-
 ## Project Overview
 
-This is a Vue.js web application called "HomePact". It appears to be a tool for managing smart home devices or agreements. The application uses the following technologies:
+This is a Vue.js web application called "HomePact" (also named "安家诺"). It serves as a smart home appliance manager. Users can log in, add their home appliances by providing a description and related documents (like invoices or manuals), and the application uses an AI-powered backend to process this information, categorize it, and even generate cover images for the appliances.
 
-*   **Frontend:** Vue.js 3, Vite, TypeScript
+The application is well-structured, using modern frontend practices and a clear separation of concerns. A key architectural choice is the use of n8n for backend workflows, which are triggered by webhooks from the frontend.
+
+## Core Technologies
+
+*   **Frontend Framework:** Vue.js 3 (with Composition API and `<script setup>`)
+*   **Build Tool:** Vite
+*   **Language:** TypeScript
 *   **UI Library:** Element Plus
 *   **State Management:** Pinia
 *   **Routing:** Vue Router
-*   **Backend/Authentication:** Supabase
+*   **Backend & Authentication:** Supabase (handles user authentication via email/password and OAuth, and provides the database for storing user and appliance data).
+*   **Automation & AI Backend:** n8n (The application heavily relies on n8n webhooks to handle backend logic, such as processing new appliance submissions, updating device information, and generating cover images).
 
-The project is structured with a clear separation of concerns, with dedicated directories for components, router, stores (for state management), and views.
+## Key Features & Implementation
 
-## Building and Running
+### 1. Authentication
 
-### Development
+*   **Implementation:** Handled entirely through Supabase Auth. The logic is encapsulated in the `src/stores/auth.ts` Pinia store.
+*   **Flow:** The `src/views/AuthPage.vue` component provides UI for login and registration. It supports email/password, Google, and GitHub OAuth.
+*   **Security:** The router in `src/router/index.ts` uses navigation guards (`beforeEach`) to protect routes that require authentication, redirecting unauthenticated users to the login page.
 
-To run the application in development mode, use the following command:
+### 2. Device Management (Core Workflow)
 
-```bash
-npm run dev
-```
+This is the central feature of the application.
 
-This will start a local development server, and you can access the application at the URL provided in the console.
+*   **Device Listing (`DeviceList.vue`):** After logging in, users are directed to `/device`. This view fetches all appliances for the current user from the Supabase `appliances` table and displays them grouped by location.
+*   **Adding a New Device (Modal in `DeviceList.vue`):**
+    *   Users provide a natural language description and can upload related files (images, PDFs, etc.) using the `UnifiedUploader.vue` component.
+    *   The submission is **not** a direct call to Supabase. Instead, it packages the description, files, and user's JWT into a `FormData` object and sends it to an **n8n webhook** (`VITE_N8N_WEBHOOK_URL`).
+    *   **AI Cover Generation:** The modal has a feature to generate cover images based on the user's description. This calls a separate n8n webhook (`VITE_N8N_GENERATE_COVER_WEBHOOK_URL`).
+*   **Device Details (`DeviceDetail.vue`):**
+    *   This view displays the full information for a single appliance, including the AI-processed data (name, brand, purchase date) and uploaded files.
+    *   Users can edit the information, and saving the changes also triggers the n8n webhook to process the update.
 
-### Production Build
+### 3. State Management
 
-To build the application for production, use the following command:
+*   **Pinia:** Used for centralized state management.
+*   **`auth.ts` store:** The most critical store. It manages the user's session, profile information, and provides actions for all authentication-related tasks. It also initializes and exports the primary Supabase client instance used across the app.
+*   **`counter.ts` store:** Appears to be boilerplate and is not used in the main application logic.
 
-```bash
-npm run build
-```
+### 4. Project Structure
 
-This will create a `dist` directory with the optimized and minified files ready for deployment.
+The `src` directory is organized logically:
 
-### Linting and Formatting
+*   `assets`: Global CSS and static assets.
+*   `components`: Reusable Vue components like the header (`AppHeader.vue`), footer (`AppFooter.vue`), and the file uploader (`UnifiedUploader.vue`).
+*   `router`: Contains the Vue Router setup, including all routes and navigation guards.
+*   `stores`: Pinia stores for global state.
+*   `views`: Page-level components that correspond to routes (e.g., `HomeView.vue`, `DeviceList.vue`).
 
-The project uses ESLint for linting and Prettier for code formatting. To check for and fix linting errors, run:
+## Development & Build Scripts
 
-```bash
-npm run lint
-```
+The project is configured with standard Vite scripts:
 
-To format the code, run:
-
-```bash
-npm run format
-```
-
-## Development Conventions
-
-*   **Coding Style:** The project follows the standard Vue.js and TypeScript coding conventions, enforced by ESLint and Prettier.
-*   **State Management:** Application state is managed using Pinia. The `src/stores` directory contains separate stores for different parts of the application (e.g., `auth.ts`).
-*   **Routing:** Vue Router is used for client-side routing. The routes are defined in `src/router/index.ts`. Navigation guards are used to protect routes that require authentication.
-*   **Authentication:** Authentication is handled by Supabase. The `src/stores/auth.ts` file contains the logic for signing in, signing up, and signing out.
-*   **Environment Variables:** The project uses environment variables to store sensitive information like API keys. These are defined in `.env` files (which are not present in the provided file list, but are a standard practice). The `vite.config.ts` file shows how these variables are used in the application.
+*   `npm run dev`: Starts the development server.
+*   `npm run build`: Builds the application for production.
+*   `npm run lint`: Lints the code using ESLint.

@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { onMounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import type { User } from '@supabase/supabase-js';
+import { Check, ArrowDown } from '@element-plus/icons-vue';
+import FamilyInfoModal from './FamilyInfoModal.vue';
+import { supabase } from '@/supabase';
+import { ElMessage } from 'element-plus';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const currentLanguage = ref('zh'); // Default to Chinese
@@ -12,6 +17,17 @@ const currentLanguage = ref('zh'); // Default to Chinese
 onMounted(() => {
   authStore.fetchSession();
 });
+
+const navigateToSection = async (sectionId: string) => {
+  if (route.path === '/') {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  } else {
+    await router.push('/#' + sectionId);
+  }
+};
 
 const goToLogin = () => {
   router.push('/auth');
@@ -27,7 +43,6 @@ const familyInfoContent = ref('');
 
 const handleFamilyInfo = async () => {
   if (authStore.user) {
-    // Fetch existing family info from Supabase
     const { data, error } = await supabase
       .from('profiles')
       .select('profiles')
@@ -84,11 +99,6 @@ const getUserDisplayName = (user: User | null) => {
 const displayLanguage = computed(() => {
   return currentLanguage.value === 'zh' ? '中文' : 'English';
 });
-import { Check, ArrowDown } from '@element-plus/icons-vue';
-import FamilyInfoModal from './FamilyInfoModal.vue';
-import { supabase } from '@/supabase'; // Assuming you have a supabase client setup
-import { ElMessage } from 'element-plus';
-
 </script>
 
 <template>
@@ -98,10 +108,10 @@ import { ElMessage } from 'element-plus';
         <img src="/favicon.ico" alt="安家诺" class="logo-img" />
         <span>安家诺</span>
       </router-link>
-      <el-menu mode="horizontal" class="header-menu" :ellipsis="false">
-        <el-menu-item index="1">核心功能</el-menu-item>
-        <el-menu-item index="2">工作原理</el-menu-item>
-        <el-menu-item index="3">关于我们</el-menu-item>
+      <el-menu v-if="route.path === '/'" mode="horizontal" class="header-menu" :ellipsis="false">
+        <el-menu-item index="1" @click="navigateToSection('core-features')">核心功能</el-menu-item>
+        <el-menu-item index="2" @click="navigateToSection('how-it-works')">工作原理</el-menu-item>
+        <el-menu-item index="3" @click="navigateToSection('about-us')">关于我们</el-menu-item>
       </el-menu>
       <div class="header-right">
         <template v-if="router.currentRoute.value.path !== '/auth'">

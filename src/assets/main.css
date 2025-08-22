@@ -1,5 +1,9 @@
 @import './base.css';
 
+html {
+  scroll-behavior: smooth;
+}
+
 #app {
   max-width: none; /* 移除最大宽度限制 */
   margin: 0; /* 移除自动边距 */

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>文件上传与处理</title>
+    <style>
+      :root {
+        --primary-color: #007bff;
+        --primary-color-light: #f0f8ff;
+        --success-color: #28a745;
+        --error-color: #dc3545;
+        --warning-color: #ffc107;
+        --light-gray: #f8f9fa;
+        --gray: #6c757d;
+        --dark-gray: #343a40;
+        --border-color: #dee2e6;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        background-color: var(--light-gray);
+        color: var(--dark-gray);
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        background-color: white;
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 500px;
+        text-align: center;
+      }
+
+      h1 {
+        font-size: 24px;
+        margin-bottom: 30px;
+        color: var(--dark-gray);
+      }
+
+      #uploadForm {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .file-drop-area {
+        border: 2px dashed var(--border-color);
+        border-radius: 8px;
+        padding: 30px;
+        transition: border-color 0.3s, background-color 0.3s;
+        cursor: pointer;
+      }
+
+      .file-drop-area.dragover {
+        border-color: var(--primary-color);
+        background-color: var(--primary-color-light);
+      }
+
+      .file-drop-area p {
+        margin: 0;
+        color: var(--gray);
+        font-size: 16px;
+      }
+
+      .file-drop-area .file-msg {
+        font-weight: bold;
+        color: var(--primary-color);
+      }
+
+      #fileInput {
+        display: none;
+      }
+
+      #fileName {
+        margin-top: 10px;
+        font-style: italic;
+        color: var(--gray);
+      }
+
+      button {
+        cursor: pointer;
+        padding: 12px 20px;
+        font-size: 16px;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        background-color: var(--primary-color);
+        color: white;
+        transition: background-color 0.3s, transform 0.2s;
+      }
+
+      button:hover {
+        background-color: #0056b3;
+      }
+
+      button:active {
+        transform: scale(0.98);
+      }
+
+      #status {
+        margin-top: 20px;
+        font-weight: bold;
+        padding: 10px;
+        border-radius: 8px;
+        display: none; /* Initially hidden */
+      }
+
+      .status-processing {
+        color: #004085;
+        background-color: #cce5ff;
+        border: 1px solid #b8daff;
+      }
+
+      .status-success {
+        color: var(--success-color);
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+      }
+
+      .status-error {
+        color: var(--error-color);
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>上传需要处理的 Excel 文件</h1>
+
+      <form id="uploadForm" enctype="multipart/form-data">
+        <label for="fileInput" class="file-drop-area" id="fileDropArea">
+          <p>拖拽文件到此处，或 <span class="file-msg">点击选择文件</span></p>
+          <p id="fileName"></p>
+        </label>
+        <input type="file" name="data" id="fileInput" required />
+        <button type="submit">上传并处理</button>
+      </form>
+
+      <div id="status"></div>
+    </div>
+
+    <script>
+      const form = document.getElementById('uploadForm');
+      const statusDiv = document.getElementById('status');
+      const fileInput = document.getElementById('fileInput');
+      const fileDropArea = document.getElementById('fileDropArea');
+      const fileNameDiv = document.getElementById('fileName');
+
+      // Handle file selection via click
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+          fileNameDiv.textContent = `已选择: ${fileInput.files[0].name}`;
+        }
+      });
+
+      // Handle drag and drop
+      fileDropArea.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        fileDropArea.classList.add('dragover');
+      });
+
+      fileDropArea.addEventListener('dragleave', () => {
+        fileDropArea.classList.remove('dragover');
+      });
+
+      fileDropArea.addEventListener('drop', (event) => {
+        event.preventDefault();
+        fileDropArea.classList.remove('dragover');
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+          fileInput.files = files; // Assign dropped files to input
+          fileNameDiv.textContent = `已选择: ${files[0].name}`;
+        }
+      });
+
+      // Handle form submission
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        if (!fileInput.files || fileInput.files.length === 0) {
+          showStatus('请先选择一个文件。', 'error');
+          return;
+        }
+
+        showStatus('正在上传并处理文件，请稍候...', 'processing');
+
+        const formData = new FormData(form);
+        const n8nWebhookUrl = 'http://localhost:5678/webhook-test/8b69253b-393b-48f4-b2af-50b62f65f7aa';
+
+        try {
+          const response = await fetch(n8nWebhookUrl, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error(`服务器错误: ${response.status} ${response.statusText}`);
+          }
+
+          showStatus('处理成功！正在准备下载...', 'success');
+
+          const contentDisposition = response.headers.get('content-disposition');
+          let filename = '处理后的文件.xlsx';
+          if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+            if (filenameMatch && filenameMatch.length > 1) {
+              filename = decodeURI(filenameMatch[1]); // Decode URI component
+            }
+          }
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = filename;
+
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+        } catch (error) {
+          console.error('处理失败:', error);
+          showStatus(`处理失败: ${error.message}`, 'error');
+        }
+      });
+
+      function showStatus(message, type) {
+        statusDiv.textContent = message;
+        statusDiv.className = `status-${type}`;
+        statusDiv.style.display = 'block';
+      }
+    </script>
+  </body>
+</html>

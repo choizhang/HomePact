@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, supabase } from '@/stores/auth';
+import { useUiStore } from '@/stores/ui'; // 导入 UI store
 import { ElMessage, ElMessageBox } from 'element-plus'; // 导入 ElMessageBox
 import UnifiedUploader from '@/components/UnifiedUploader.vue'; // 导入新的文件上传组件
 
@@ -38,6 +39,7 @@ const isSaving = ref(false); // 控制保存按钮的loading状态和禁用状�
 const coverImage = ref<string | null>(null); // 新增 coverImage 字段
 
 const authStore = useAuthStore(); // 确保 authStore 在这里被定义
+const uiStore = useUiStore();
 
 const deleteDevice = async () => {
   if (!deviceId.value) {
@@ -60,6 +62,7 @@ const deleteDevice = async () => {
       ElMessage.error('删除失败: ' + error.message);
     } else {
       ElMessage.success('删除成功！');
+      uiStore.setDeviceListStale(true); // 通知列表页数据已陈旧
       router.push('/device'); // 删除成功后返回列表页
     }
   } catch (error) {
@@ -79,6 +82,7 @@ const updateDeviceEnableStatus = async (isEnabled: boolean) => {
     ElMessage.error('更新启用状态失败: ' + error.message);
   } else {
     ElMessage.success('启用状态更新成功！');
+    uiStore.setDeviceListStale(true); // 启用状态也是列表页的一部分，需要刷新
   }
 };
 
@@ -248,6 +252,7 @@ const saveDevice = async () => {
 
     if (response.ok) {
       ElMessage.success('设备信息已更新！');
+      uiStore.setDeviceListStale(true); // 通知列表页数据已陈旧
       router.back();
     } else {
       const errorData = await response.json();

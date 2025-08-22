@@ -12,8 +12,8 @@
           安家诺
         </h1>
         <p class="subtitle">您的智能家电管家</p>
-        <el-button type="primary" size="large" class="try-now-button">立即免费试用</el-button>
-        <div class="core-features">
+        <el-button type="primary" size="large" class="try-now-button" @click="handleTryNowClick">立即免费试用</el-button>
+        <div class="core-features" id="core-features">
           <div class="feature">
             <el-icon :size="40" color="#e67e22">
               <DocumentAdd />
@@ -44,7 +44,7 @@
       </div>
     </div>
 
-    <div class="three-steps-section">
+    <div class="three-steps-section" id="how-it-works">
       <h2>只需三步，轻松搞定</h2>
       <div class="steps-container">
         <div class="step">
@@ -64,16 +64,36 @@
         </div>
       </div>
     </div>
+
+    <div class="about-us-section" id="about-us">
+      <h2>关于我们</h2>
+      <p class="about-us-content">
+        HomePact (安家诺) 致力于通过最前沿的AI技术，帮助您轻松管理所有家电信息。<br />
+        我们相信，科技应服务于生活，让繁琐的家电管理变得简单、智能、高效。
+      </p>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 import { DocumentAdd, DataAnalysis, Bell } from '@element-plus/icons-vue';
 
 const leftVideoPlayer = ref<HTMLVideoElement | null>(null);
 const rightVideoPlayer = ref<HTMLVideoElement | null>(null);
+const router = useRouter();
+const authStore = useAuthStore();
 
+const handleTryNowClick = () => {
+  if (authStore.user) {
+    router.push('/device');
+  } else {
+    router.push('/auth');
+  }
+};
 
 const playLeftVideo = async () => {
   if (leftVideoPlayer.value && rightVideoPlayer.value) {
@@ -294,6 +314,24 @@ onMounted(() => {
 .step h3 {
   font-size: 24px;
   margin-bottom: 10px;
+}
+
+.about-us-section {
+  padding: 80px 20px;
+  background-color: #fdf6e3; /* Match the main background */
+  text-align: center;
+}
+
+.about-us-section h2 {
+  font-size: 36px;
+  margin-bottom: 40px;
+}
+
+.about-us-content {
+  max-width: 800px;
+  margin: 0 auto;
+  font-size: 18px;
+  line-height: 1.8;
 }
 
 .common-footer {

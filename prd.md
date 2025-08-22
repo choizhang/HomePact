@@ -83,3 +83,5 @@ gemini --version
 git config user.email
 
 sudo chown -R $(whoami) /Users/choizhang/HomePact/node_modules
+
+@README.md @src/ 请总结整个项目并写入 GEMINI.md
