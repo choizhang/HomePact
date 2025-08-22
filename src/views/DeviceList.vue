@@ -384,7 +384,6 @@ const handleSubmitAppliance = async () => {
       }
     } else {
       ElMessage.error('请检查表单，所有必填项都需填写。');
-      return false;
     }
   });
 };
